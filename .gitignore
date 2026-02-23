@@ -1,0 +1,26 @@
+# Binaries
+/emusync
+/emusync-server
+*.exe
+
+# Build output
+/build/
+/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+*.local
+
+# Test data
+/test-saves/
