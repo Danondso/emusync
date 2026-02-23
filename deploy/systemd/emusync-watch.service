@@ -1,0 +1,18 @@
+[Unit]
+Description=emusync save file watcher
+Documentation=https://github.com/dublin/emusync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/emusync watch
+Restart=on-failure
+RestartSec=5
+Environment=HOME=%h
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

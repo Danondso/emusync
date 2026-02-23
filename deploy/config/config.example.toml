@@ -1,0 +1,117 @@
+[server]
+host = "192.168.1.100"
+port = 8080
+auth_token = "changeme-generate-a-real-token"
+
+[client]
+device_id = "my-device"
+saves_path = "~/Emulation/saves"
+backup_path = "~/Emulation/saves/.sync-backups"
+max_local_backups = 10
+
+[sync]
+auto_sync_on_close = true
+auto_sync_on_launch = true
+conflict_strategy = "prompt"
+poll_interval_ms = 2000
+post_exit_delay_ms = 2000
+
+# --- Emulator Definitions ---
+# Each [[emulators]] block maps process names to save directories.
+# Paths are relative to saves_path unless they start with "/".
+# Add your own emulators by copying any block and changing the values.
+
+[[emulators]]
+name = "retroarch"
+process_names = ["retroarch"]
+save_paths = ["retroarch/saves", "retroarch/states"]
+
+[[emulators]]
+name = "dolphin"
+process_names = ["dolphin-emu"]
+save_paths = ["dolphin/GC", "dolphin/Wii", "dolphin/StateSaves"]
+
+[[emulators]]
+name = "pcsx2"
+process_names = ["pcsx2-qt", "pcsx2-Qt.AppImage"]
+save_paths = ["pcsx2/saves", "pcsx2/states"]
+
+[[emulators]]
+name = "rpcs3"
+process_names = ["rpcs3", "rpcs3.AppImage"]
+save_paths = ["rpcs3/saves", "rpcs3/trophy"]
+
+[[emulators]]
+name = "ryujinx"
+process_names = ["ryujinx", "Ryujinx", "Ryujinx.Ava"]
+save_paths = ["ryujinx/saves", "ryujinx/system", "ryujinx/system_saves", "ryujinx/saveMeta"]
+
+[[emulators]]
+name = "duckstation"
+process_names = ["duckstation-qt", "DuckStation.AppImage"]
+save_paths = ["duckstation/saves", "duckstation/states"]
+
+[[emulators]]
+name = "ppsspp"
+process_names = ["PPSSPPSDL", "ppsspp"]
+save_paths = ["ppsspp/saves", "ppsspp/states"]
+
+[[emulators]]
+name = "azahar"
+process_names = ["azahar", "azahar.AppImage", "citra-qt"]
+save_paths = ["azahar/saves", "azahar/states", "citra/saves", "citra/states"]
+
+[[emulators]]
+name = "cemu"
+process_names = ["Cemu", "Cemu.AppImage"]
+save_paths = ["Cemu/saves"]
+
+[[emulators]]
+name = "mgba"
+process_names = ["mgba-qt", "mGBA.AppImage"]
+save_paths = ["mgba/saves", "mgba/states"]
+
+[[emulators]]
+name = "melonds"
+process_names = ["melonDS"]
+save_paths = ["melonds/saves", "melonds/states"]
+
+[[emulators]]
+name = "mame"
+process_names = ["mame"]
+save_paths = ["MAME/saves", "MAME/states"]
+
+[[emulators]]
+name = "flycast"
+process_names = ["flycast"]
+save_paths = ["flycast/saves", "flycast/states"]
+
+[[emulators]]
+name = "scummvm"
+process_names = ["scummvm"]
+save_paths = ["scummvm/saves"]
+
+[[emulators]]
+name = "primehack"
+process_names = ["primehack"]
+save_paths = ["primehack/GC", "primehack/Wii", "primehack/StateSaves"]
+
+[[emulators]]
+name = "rmg"
+process_names = ["RMG"]
+save_paths = ["RMG/saves", "RMG/states"]
+
+[[emulators]]
+name = "vita3k"
+process_names = ["Vita3K"]
+save_paths = ["Vita3K/saves"]
+
+[[emulators]]
+name = "xenia"
+process_names = ["xenia", "xenia_canary.exe"]
+save_paths = ["xenia/saves"]
+
+[[emulators]]
+name = "shadps4"
+process_names = ["shadps4", "Shadps4-qt.AppImage"]
+save_paths = ["shadps4/saves"]
