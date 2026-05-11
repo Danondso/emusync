@@ -13,13 +13,16 @@ Emusync is a self-hosted emulator save file synchronization service for Linux de
 ```bash
 make build          # Build binary with version from git tags
 make test           # Run all tests (go test ./... -v)
-make docker         # Build Docker container
-make docker-up      # Start server container
-make docker-down    # Stop server container
+make test-e2e       # Docker Compose E2E (go test -tags e2e ./tests/e2e/...)
+make docker         # Build Docker container (docker compose build)
+make docker-up      # Start server container (docker compose up -d)
+make docker-down    # Stop server container (docker compose down)
 make install        # Install binary to ~/.local/bin/
 make install-service # Install systemd user service
 make init           # Generate default config.toml
 ```
+
+CI (GitHub Actions): `staticcheck`, `go vet`, `go test ./...`, then Docker E2E (`-tags e2e`).
 
 Run a single test:
 ```bash
@@ -32,7 +35,7 @@ go test ./internal/hasher/ -v -run TestHashName
 
 - `main.go` — Entry point, delegates to `cmd.Execute()`
 - `cmd/` — Cobra CLI commands: `server`, `watch`, `push`, `pull`, `status`, `history`, `resolve`, `init`
-- `internal/config/` — TOML config loading with 18 default emulator mappings (`defaults.go`)
+- `internal/config/` — TOML config loading with 19 default emulator mappings (`defaults.go`)
 - `internal/model/` — Shared types: `Manifest`, `FileEntry`, `Conflict`, `SyncResult`, `EmulatorConfig`
 - `internal/server/` — HTTP server, file storage, auth middleware, conflict handling
 - `internal/client/` — `Syncer` (push/pull orchestration, state tracking) and `APIClient` (HTTP with retries)

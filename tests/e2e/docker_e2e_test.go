@@ -332,8 +332,8 @@ func TestE2E_VersionHistory(t *testing.T) {
 			// First upload may or may not show depending on state
 		}
 		_ = result
-		// Small delay so backup timestamps differ
-		time.Sleep(100 * time.Millisecond)
+		// Backups use second-resolution timestamps (see Storage.createBackup)
+		time.Sleep(1100 * time.Millisecond)
 	}
 
 	apiClient := deviceA.GetClient()

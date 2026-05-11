@@ -5,7 +5,7 @@ services:
     container_name: emusync-server
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:8080"
+      - "0.0.0.0:8080:8080"
     volumes:
       - emusync-data:/data
     environment:
