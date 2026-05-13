@@ -13,6 +13,7 @@ Emusync is a self-hosted emulator save file synchronization service for Linux de
 ```bash
 make build          # Build binary with version from git tags
 make test           # Run all tests (go test ./... -v)
+make test-e2e       # Docker E2E (`-tags e2e`). Optional `EMUSYNC_E2E_PORT` if API not on localhost:8080
 make docker         # Build Docker container
 make docker-up      # Start server container
 make docker-down    # Stop server container
