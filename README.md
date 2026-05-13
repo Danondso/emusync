@@ -119,14 +119,16 @@ save_paths = ["my-emulator/saves", "my-emulator/states"]
 
 ## Building
 
-Requires Go 1.25+.
+Install [Go](https://go.dev/dl/) **1.26 or newer** (see the `go` directive in `go.mod`; CI uses that version).
 
 ```bash
 make build      # Build binary
-make test       # Run tests
-make test-e2e   # Dockerized E2E (`go test -tags e2e ./tests/e2e/...`). Override published API port with EMUSYNC_E2E_PORT if needed (default 8080).
-make docker     # Build Docker image
+make test       # Unit tests (excludes E2E tag)
+make test-e2e   # Full stack E2E via Docker Compose — requires Docker
+make docker     # Build Docker image (`docker compose build`)
 ```
+
+Pull requests run the same checks in [GitHub Actions](.github/workflows/ci.yml) (`go vet`, `staticcheck`, tests, then E2E).
 
 ## License
 
