@@ -12,8 +12,8 @@ import (
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Generate default config file",
-	Long:  "Creates a default config.toml at ~/.config/emusync/config.toml with all emulator mappings.",
+	Short: "Generate minimal starter config",
+	Long:  "Creates a small config.toml without emulator mappings. Run emusync setup to attach to your server and tune paths.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := cfgPath
 
@@ -27,14 +27,18 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("creating config directory: %w", err)
 		}
 
-		// Write default config
-		if err := os.WriteFile(path, []byte(config.DefaultConfigContent()), 0600); err != nil {
+		hostName, err := os.Hostname()
+		if err != nil {
+			hostName = "my-device"
+		}
+		cfg := config.MinimalSkeleton(hostName)
+		if err := config.Save(path, cfg); err != nil {
 			return fmt.Errorf("writing config: %w", err)
 		}
 
 		slog.Info("config created", "path", path)
-		fmt.Printf("Config created at %s\n", path)
-		fmt.Println("Edit it to set your server address, device ID, and emulator paths.")
+		fmt.Printf("Starter config created at %s\n", path)
+		fmt.Println("Run emusync setup to connect to your server and configure save paths.")
 		return nil
 	},
 }

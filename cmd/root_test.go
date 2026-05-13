@@ -38,7 +38,18 @@ func TestCLI_ServerFindable(t *testing.T) {
 	}
 }
 
-func TestInit_WritesDefaultConfig(t *testing.T) {
+func TestCLI_SetupFindable(t *testing.T) {
+	t.Cleanup(func() { resetRootArgsAndIO(t) })
+	cmd, _, err := rootCmd.Find([]string{"setup"})
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if cmd.Name() != "setup" {
+		t.Fatalf("command name = %q, want setup", cmd.Name())
+	}
+}
+
+func TestInit_WritesMinimalStarterConfig(t *testing.T) {
 	t.Cleanup(func() { resetRootArgsAndIO(t) })
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
@@ -52,14 +63,18 @@ func TestInit_WritesDefaultConfig(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	data, err := os.ReadFile(cfgPath)
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.TrimSpace(string(data))
-	wantContent := strings.TrimSpace(config.DefaultConfigContent())
-	if got != wantContent {
-		t.Fatal("generated config differs from DefaultConfigContent()")
+	if len(cfg.Emulators) != 0 {
+		t.Fatalf("expected skeleton without emulators, got %d entries", len(cfg.Emulators))
+	}
+	if cfg.Server.AuthToken != "configure-with-emusync-setup" {
+		t.Fatalf("placeholder token %q", cfg.Server.AuthToken)
+	}
+	if cfg.Server.Host != "127.0.0.1" {
+		t.Fatalf("host %q", cfg.Server.Host)
 	}
 }
 

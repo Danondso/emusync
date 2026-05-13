@@ -20,7 +20,7 @@ var rootCmd = &cobra.Command{
 	Short: "Emulator save file sync",
 	Long:  "Self-hosted emulator save file sync across devices.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Server command reads env vars, not config file
+		// Init and setup write config; server reads env vars instead.
 		if cmd.Name() == "server" {
 			return nil
 		}
@@ -30,8 +30,8 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("determining log path: %w", err)
 		}
 
-		// Init command doesn't need an existing config
-		if cmd.Name() == "init" {
+		// Init and setup write config; skip loading existing config.
+		if cmd.Name() == "init" || cmd.Name() == "setup" {
 			cleanup, err := logging.Setup(logPath, verbose)
 			if err != nil {
 				return err

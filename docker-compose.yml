@@ -13,6 +13,7 @@ services:
       - EMUSYNC_DATA_DIR=/data
       - EMUSYNC_AUTH_TOKEN=${EMUSYNC_AUTH_TOKEN:?EMUSYNC_AUTH_TOKEN must be set}
       - EMUSYNC_MAX_BACKUPS=10
+      - EMUSYNC_ADVERTISE_MDNS=${EMUSYNC_ADVERTISE_MDNS:-false}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]
       interval: 30s

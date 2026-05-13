@@ -18,6 +18,9 @@ func writeTOML(t *testing.T, content string) string {
 
 func TestLoad_Valid(t *testing.T) {
 	path := writeTOML(t, `
+[server]
+host = "127.0.0.1"
+
 [client]
 device_id = "my-deck"
 `)
@@ -32,6 +35,9 @@ device_id = "my-deck"
 
 func TestLoad_AppliesDefaults(t *testing.T) {
 	path := writeTOML(t, `
+[server]
+host = "127.0.0.1"
+
 [client]
 device_id = "test-device"
 `)
@@ -63,7 +69,11 @@ device_id = "test-device"
 func TestLoad_MissingDeviceID(t *testing.T) {
 	path := writeTOML(t, `
 [server]
+host = "127.0.0.1"
 port = 9090
+
+[client]
+device_id = ""
 `)
 	_, err := Load(path)
 	if err == nil {
@@ -76,6 +86,9 @@ port = 9090
 
 func TestLoad_InvalidConflictStrategy(t *testing.T) {
 	path := writeTOML(t, `
+[server]
+host = "127.0.0.1"
+
 [client]
 device_id = "test"
 
@@ -94,6 +107,9 @@ func TestLoad_ValidStrategies(t *testing.T) {
 	for _, strategy := range strategies {
 		t.Run(strategy, func(t *testing.T) {
 			path := writeTOML(t, `
+[server]
+host = "127.0.0.1"
+
 [client]
 device_id = "test"
 
