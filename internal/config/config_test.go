@@ -164,3 +164,11 @@ func TestResolveSavePath(t *testing.T) {
 		}
 	})
 }
+
+func TestDefaultEmulatorsCountDocumentation(t *testing.T) {
+	// README and CLAUDE.md advertise this count beside DefaultEmulators() / defaults.go TOML.
+	const documentedCount = 19
+	if got := len(DefaultEmulators()); got != documentedCount {
+		t.Fatalf("len(DefaultEmulators())=%d; update documentedCount, README, and CLAUDE.md together", got)
+	}
+}
