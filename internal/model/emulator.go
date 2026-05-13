@@ -7,9 +7,9 @@ import (
 
 // EmulatorConfig maps emulator process names to save directories.
 type EmulatorConfig struct {
-	Name         string   `toml:"name"`
-	ProcessNames []string `toml:"process_names"`
-	SavePaths    []string `toml:"save_paths"`
+	Name         string   `toml:"name" json:"name"`
+	ProcessNames []string `toml:"process_names" json:"process_names"`
+	SavePaths    []string `toml:"save_paths" json:"save_paths"`
 }
 
 // MatchesProcess returns true if processName matches any configured process name.

@@ -22,6 +22,7 @@ type ServerConfig struct {
 	AuthToken     string
 	MaxBackups    int
 	AdvertiseMDNS bool
+	AdminToken    string
 }
 
 // ConfigFromEnv reads server configuration from environment variables.
@@ -47,6 +48,7 @@ func ConfigFromEnv() ServerConfig {
 		}
 	}
 	cfg.AdvertiseMDNS = strings.EqualFold(strings.TrimSpace(os.Getenv("EMUSYNC_ADVERTISE_MDNS")), "true")
+	cfg.AdminToken = strings.TrimSpace(os.Getenv("EMUSYNC_ADMIN_TOKEN"))
 
 	return cfg
 }
@@ -59,12 +61,18 @@ func Run(cfg ServerConfig) error {
 	mux := http.NewServeMux()
 	handlers.RegisterRoutes(mux)
 
-	var handler http.Handler = mux
+	var syncHandler http.Handler = mux
 	if cfg.AuthToken != "" {
-		handler = AuthMiddleware(cfg.AuthToken, mux)
+		syncHandler = AuthMiddleware(cfg.AuthToken, mux)
 		slog.Info("auth enabled")
 	} else {
 		slog.Warn("auth disabled (no EMUSYNC_AUTH_TOKEN set)")
+	}
+
+	handler := syncHandler
+	if cfg.AdminToken != "" {
+		handler = routeAdminFirst(handlers.AdminHandler(cfg.AdminToken), syncHandler)
+		slog.Info("admin API and web UI enabled under /admin/")
 	}
 
 	// Add request logging
@@ -104,6 +112,16 @@ func Run(cfg ServerConfig) error {
 		return fmt.Errorf("server error: %w", err)
 	}
 	return nil
+}
+
+func routeAdminFirst(admin http.Handler, sync http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/admin") {
+			admin.ServeHTTP(w, r)
+			return
+		}
+		sync.ServeHTTP(w, r)
+	})
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {

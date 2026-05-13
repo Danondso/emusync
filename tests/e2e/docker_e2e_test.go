@@ -33,9 +33,10 @@ var (
 	projectDir string
 
 	// Set in TestMain before any test runs.
-	e2eAuthToken string
-	e2eHTTPPort  int
-	e2eBaseURL   string
+	e2eAuthToken  string
+	e2eAdminToken string
+	e2eHTTPPort   int
+	e2eBaseURL    string
 )
 
 func TestMain(m *testing.M) {
@@ -72,9 +73,11 @@ func runE2EMain(m *testing.M) int {
 		return 1
 	}
 	e2eAuthToken = hex.EncodeToString(tokenBytes)
+	e2eAdminToken = "e2e-admin-token-fixed"
 
 	// Restrictive perms; root .env is listed in .gitignore — never commit real secrets here.
-	if err := os.WriteFile(envPath, []byte("EMUSYNC_AUTH_TOKEN="+e2eAuthToken+"\n"), 0600); err != nil {
+	envBody := "EMUSYNC_AUTH_TOKEN=" + e2eAuthToken + "\nEMUSYNC_ADMIN_TOKEN=" + e2eAdminToken + "\n"
+	if err := os.WriteFile(envPath, []byte(envBody), 0600); err != nil {
 		fmt.Fprintf(os.Stderr, "write .env: %v\n", err)
 		return 1
 	}
@@ -506,5 +509,25 @@ func TestE2E_AuthRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "401") {
 		t.Fatalf("expected 401 error, got: %v", err)
+	}
+}
+
+func TestE2E_AdminProfileGET(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, e2eBaseURL+"/admin/api/v1/profile", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+e2eAdminToken)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("admin profile HTTP %s: %s", res.Status, string(body))
+	}
+	if !strings.Contains(string(body), `"version"`) {
+		t.Fatalf("unexpected body: %s", string(body))
 	}
 }
