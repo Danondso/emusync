@@ -124,6 +124,7 @@ Requires Go 1.25+.
 ```bash
 make build      # Build binary
 make test       # Run tests
+make test-e2e   # Dockerized E2E (`go test -tags e2e ./tests/e2e/...`). Override published API port with EMUSYNC_E2E_PORT if needed (default 8080).
 make docker     # Build Docker image
 ```
 

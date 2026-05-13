@@ -1,5 +1,7 @@
 //go:build e2e
 
+// Package e2e runs Docker Compose integration tests against the API as published on localhost.
+// Do not use t.Parallel() here: auth and HTTP endpoints are configured once in TestMain.
 package e2e
 
 import (
@@ -7,12 +9,15 @@ import (
 	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,12 +27,16 @@ import (
 	"github.com/dublin/emusync/internal/model"
 )
 
-const serverURL = "http://localhost:8080"
+const defaultE2EPort = 8080
 
-// e2eAuthToken is generated in TestMain (unique per run so a leaked .env is not a reusable known secret).
-var e2eAuthToken string
+var (
+	projectDir string
 
-var projectDir string
+	// Set in TestMain before any test runs.
+	e2eAuthToken string
+	e2eHTTPPort  int
+	e2eBaseURL   string
+)
 
 func TestMain(m *testing.M) {
 	os.Exit(runE2EMain(m))
@@ -40,12 +49,20 @@ func runE2EMain(m *testing.M) int {
 		return 1
 	}
 	projectDir = filepath.Join(wd, "..", "..")
+
+	if err := resolveE2EHTTPPort(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 1
+	}
+	e2eBaseURL = fmt.Sprintf("http://localhost:%d", e2eHTTPPort)
+
 	envPath := filepath.Join(projectDir, ".env")
 
 	teardown := func() {
-		// Always tear down compose and remove secrets file (defer runs before os.Exit).
-		_ = runCmd(projectDir, "docker", "compose", "down", "-v")
-		_ = os.Remove(envPath)
+		logTeardownErr("compose down", runCmd(projectDir, "docker", "compose", "down", "-v"))
+		if err := os.Remove(envPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logTeardownErr("remove .env", err)
+		}
 	}
 	defer teardown()
 
@@ -76,10 +93,33 @@ func runE2EMain(m *testing.M) int {
 	return m.Run()
 }
 
+func resolveE2EHTTPPort() error {
+	e2eHTTPPort = defaultE2EPort
+	p := strings.TrimSpace(os.Getenv("EMUSYNC_E2E_PORT"))
+	if p == "" {
+		return nil
+	}
+	v, err := strconv.Atoi(p)
+	if err != nil || v <= 0 || v > 65535 {
+		return fmt.Errorf("invalid EMUSYNC_E2E_PORT %q (want 1–65535)", p)
+	}
+	e2eHTTPPort = v
+	return nil
+}
+
+func logTeardownErr(label string, err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "e2e teardown [%s]: %v\n", label, err)
+	}
+}
+
 func waitForHealth(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		req, _ := http.NewRequest("GET", serverURL+"/api/v1/health", nil)
+		req, err := http.NewRequest("GET", e2eBaseURL+"/api/v1/health", nil)
+		if err != nil {
+			return fmt.Errorf("health request: %w", err)
+		}
 		req.Header.Set("Authorization", "Bearer "+e2eAuthToken)
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil && resp.StatusCode == 200 {
@@ -110,7 +150,7 @@ func newDevice(t *testing.T, deviceID string) (*client.Syncer, string) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host:      "localhost",
-			Port:      8080,
+			Port:      e2eHTTPPort,
 			AuthToken: e2eAuthToken,
 		},
 		Client: config.ClientConfig{
@@ -148,7 +188,10 @@ func sha256hex(s string) string {
 }
 
 func TestE2E_HealthCheck(t *testing.T) {
-	req, _ := http.NewRequest("GET", serverURL+"/api/v1/health", nil)
+	req, err := http.NewRequest("GET", e2eBaseURL+"/api/v1/health", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	req.Header.Set("Authorization", "Bearer "+e2eAuthToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -398,7 +441,7 @@ func TestE2E_MultipleEmulators(t *testing.T) {
 		t.Fatal("expected melonds upload")
 	}
 
-	// Pull on another device - data stays isolated
+	// Pull on another device — data stays isolated
 	device2, saves2 := newDevice(t, "steamdeck")
 	result, err := device2.SyncBeforeLaunch(ctx, emuA)
 	if err != nil {
@@ -454,7 +497,7 @@ func TestE2E_LargeFile(t *testing.T) {
 }
 
 func TestE2E_AuthRejected(t *testing.T) {
-	badClient := client.NewAPIClient(serverURL, "wrong-token")
+	badClient := client.NewAPIClient(e2eBaseURL, "wrong-token")
 	ctx := context.Background()
 
 	_, err := badClient.GetManifest(ctx, "retroarch")

@@ -1,4 +1,4 @@
-.PHONY: build test clean docker install
+.PHONY: build test test-e2e clean docker install
 
 BINARY := emusync
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -9,6 +9,9 @@ build:
 
 test:
 	go test ./... -v
+
+test-e2e:
+	go test -tags e2e -v -timeout 30m ./tests/e2e/...
 
 clean:
 	rm -f $(BINARY)
