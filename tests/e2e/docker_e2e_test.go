@@ -1,17 +1,23 @@
 //go:build e2e
 
+// Package e2e runs Docker Compose integration tests against the API as published on localhost.
+// Do not use t.Parallel() here: auth and HTTP endpoints are configured once in TestMain.
 package e2e
 
 import (
 	"context"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,53 +27,100 @@ import (
 	"github.com/dublin/emusync/internal/model"
 )
 
-const (
-	serverURL = "http://localhost:8080"
-	authToken = "e2e-test-token"
+const defaultE2EPort = 8080
+
+var (
+	projectDir string
+
+	// Set in TestMain before any test runs.
+	e2eAuthToken string
+	e2eHTTPPort  int
+	e2eBaseURL   string
 )
 
-var projectDir string
-
 func TestMain(m *testing.M) {
-	// Find project root (where docker-compose.yml lives)
+	os.Exit(runE2EMain(m))
+}
+
+func runE2EMain(m *testing.M) int {
 	wd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "getwd: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	projectDir = filepath.Join(wd, "..", "..")
 
-	// Write .env for docker-compose
-	envPath := filepath.Join(projectDir, ".env")
-	os.WriteFile(envPath, []byte("EMUSYNC_AUTH_TOKEN="+authToken+"\n"), 0644)
-	defer os.Remove(envPath)
+	if err := resolveE2EHTTPPort(); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 1
+	}
+	e2eBaseURL = fmt.Sprintf("http://localhost:%d", e2eHTTPPort)
 
-	// Build and start the server
+	envPath := filepath.Join(projectDir, ".env")
+
+	teardown := func() {
+		logTeardownErr("compose down", runCmd(projectDir, "docker", "compose", "down", "-v"))
+		if err := os.Remove(envPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logTeardownErr("remove .env", err)
+		}
+	}
+	defer teardown()
+
+	tokenBytes := make([]byte, 24)
+	if _, err := crand.Read(tokenBytes); err != nil {
+		fmt.Fprintf(os.Stderr, "e2e auth token: %v\n", err)
+		return 1
+	}
+	e2eAuthToken = hex.EncodeToString(tokenBytes)
+
+	// Restrictive perms; root .env is listed in .gitignore — never commit real secrets here.
+	if err := os.WriteFile(envPath, []byte("EMUSYNC_AUTH_TOKEN="+e2eAuthToken+"\n"), 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "write .env: %v\n", err)
+		return 1
+	}
+
 	if err := runCmd(projectDir, "docker", "compose", "up", "-d", "--build"); err != nil {
 		fmt.Fprintf(os.Stderr, "docker compose up: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
-	// Wait for health check
 	if err := waitForHealth(30 * time.Second); err != nil {
 		fmt.Fprintf(os.Stderr, "health check failed: %v\n", err)
-		runCmd(projectDir, "docker", "compose", "logs")
-		runCmd(projectDir, "docker", "compose", "down", "-v")
-		os.Exit(1)
+		_ = runCmd(projectDir, "docker", "compose", "logs")
+		return 1
 	}
 
-	code := m.Run()
+	return m.Run()
+}
 
-	// Teardown
-	runCmd(projectDir, "docker", "compose", "down", "-v")
-	os.Exit(code)
+func resolveE2EHTTPPort() error {
+	e2eHTTPPort = defaultE2EPort
+	p := strings.TrimSpace(os.Getenv("EMUSYNC_E2E_PORT"))
+	if p == "" {
+		return nil
+	}
+	v, err := strconv.Atoi(p)
+	if err != nil || v <= 0 || v > 65535 {
+		return fmt.Errorf("invalid EMUSYNC_E2E_PORT %q (want 1–65535)", p)
+	}
+	e2eHTTPPort = v
+	return nil
+}
+
+func logTeardownErr(label string, err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "e2e teardown [%s]: %v\n", label, err)
+	}
 }
 
 func waitForHealth(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		req, _ := http.NewRequest("GET", serverURL+"/api/v1/health", nil)
-		req.Header.Set("Authorization", "Bearer "+authToken)
+		req, err := http.NewRequest("GET", e2eBaseURL+"/api/v1/health", nil)
+		if err != nil {
+			return fmt.Errorf("health request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+e2eAuthToken)
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
@@ -97,8 +150,8 @@ func newDevice(t *testing.T, deviceID string) (*client.Syncer, string) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Host:      "localhost",
-			Port:      8080,
-			AuthToken: authToken,
+			Port:      e2eHTTPPort,
+			AuthToken: e2eAuthToken,
 		},
 		Client: config.ClientConfig{
 			DeviceID:  deviceID,
@@ -135,8 +188,11 @@ func sha256hex(s string) string {
 }
 
 func TestE2E_HealthCheck(t *testing.T) {
-	req, _ := http.NewRequest("GET", serverURL+"/api/v1/health", nil)
-	req.Header.Set("Authorization", "Bearer "+authToken)
+	req, err := http.NewRequest("GET", e2eBaseURL+"/api/v1/health", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+e2eAuthToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -332,8 +388,8 @@ func TestE2E_VersionHistory(t *testing.T) {
 			// First upload may or may not show depending on state
 		}
 		_ = result
-		// Small delay so backup timestamps differ
-		time.Sleep(100 * time.Millisecond)
+		// Backups use second-resolution timestamps (see Storage.createBackup)
+		time.Sleep(1100 * time.Millisecond)
 	}
 
 	apiClient := deviceA.GetClient()
@@ -385,7 +441,7 @@ func TestE2E_MultipleEmulators(t *testing.T) {
 		t.Fatal("expected melonds upload")
 	}
 
-	// Pull on another device - data stays isolated
+	// Pull on another device — data stays isolated
 	device2, saves2 := newDevice(t, "steamdeck")
 	result, err := device2.SyncBeforeLaunch(ctx, emuA)
 	if err != nil {
@@ -441,7 +497,7 @@ func TestE2E_LargeFile(t *testing.T) {
 }
 
 func TestE2E_AuthRejected(t *testing.T) {
-	badClient := client.NewAPIClient(serverURL, "wrong-token")
+	badClient := client.NewAPIClient(e2eBaseURL, "wrong-token")
 	ctx := context.Background()
 
 	_, err := badClient.GetManifest(ctx, "retroarch")
