@@ -1,8 +1,10 @@
-.PHONY: build test clean docker install
+.PHONY: build test test-e2e clean docker install
 
 BINARY := emusync
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -s -w -X main.version=$(VERSION)
+# Docker Compose v2 CLI; set DOCKER_COMPOSE=docker-compose if you use the standalone binary
+DOCKER_COMPOSE ?= docker compose
 
 build:
 	go build -ldflags="$(LDFLAGS)" -o $(BINARY) .
@@ -10,17 +12,20 @@ build:
 test:
 	go test ./... -v
 
+test-e2e:
+	go test -tags e2e -v -timeout 30m ./tests/e2e/...
+
 clean:
 	rm -f $(BINARY)
 
 docker:
-	docker-compose build
+	$(DOCKER_COMPOSE) build
 
 docker-up:
-	docker-compose up -d
+	$(DOCKER_COMPOSE) up -d
 
 docker-down:
-	docker-compose down
+	$(DOCKER_COMPOSE) down
 
 install: build
 	mkdir -p ~/.local/bin
