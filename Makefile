@@ -1,4 +1,4 @@
-.PHONY: build test test-e2e clean docker install
+.PHONY: build test test-e2e clean docker install bootstrap-server
 
 BINARY := emusync
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -26,6 +26,9 @@ docker-up:
 
 docker-down:
 	$(DOCKER_COMPOSE) down
+
+bootstrap-server:
+	./scripts/bootstrap-server.sh
 
 install: build
 	mkdir -p ~/.local/bin
