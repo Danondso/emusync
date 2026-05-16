@@ -25,7 +25,7 @@ type WizardOptions struct {
 	Out     io.Writer
 	ErrOut  io.Writer
 	// Discover defaults to discovery.Lookup when nil.
-	Discover func(context.Context, time.Duration) []discovery.Server
+	Discover func(context.Context, time.Duration) ([]discovery.Server, error)
 	// LookupWait defaults to 2s.
 	LookupWait time.Duration
 }
@@ -78,12 +78,20 @@ func RunWizard(opts WizardOptions) error {
 		return s, nil
 	}
 
-	fmt.Fprintf(opts.ErrOut, "Searching LAN for emusync servers (mDNS, ~%ds)...\n", int(opts.LookupWait.Round(time.Second)))
+	waitSec := int(opts.LookupWait.Round(time.Second) / time.Second)
+	if waitSec < 1 {
+		waitSec = 1
+	}
+	fmt.Fprintf(opts.ErrOut, "Searching LAN for emusync servers (mDNS, ~%ds)...\n", waitSec)
 	var servers []discovery.Server
+	var discErr error
 	if opts.Discover != nil {
-		servers = opts.Discover(context.Background(), opts.LookupWait)
+		servers, discErr = opts.Discover(context.Background(), opts.LookupWait)
 	} else {
-		servers = discovery.Lookup(context.Background(), opts.LookupWait)
+		servers, discErr = discovery.Lookup(context.Background(), opts.LookupWait)
+	}
+	if discErr != nil {
+		fmt.Fprintf(opts.ErrOut, "mDNS discovery failed (%v). You can enter the server address manually.\n", discErr)
 	}
 
 	var host string
@@ -99,7 +107,7 @@ func RunWizard(opts WizardOptions) error {
 		if err != nil {
 			return err
 		}
-		ch = strings.ToLower(strings.TrimSpace(ch))
+		ch = strings.ToLower(ch)
 		if ch != "m" && ch != "manual" {
 			idx, err := strconv.Atoi(ch)
 			if err != nil || idx < 1 || idx > len(servers) {
@@ -116,13 +124,13 @@ func RunWizard(opts WizardOptions) error {
 		if err != nil {
 			return err
 		}
-		host = strings.TrimSpace(h)
+		host = h
 		fmt.Fprintf(opts.ErrOut, "Port [8080]: ")
 		ps, err := readLine("8080")
 		if err != nil {
 			return err
 		}
-		p, err := strconv.Atoi(strings.TrimSpace(ps))
+		p, err := strconv.Atoi(ps)
 		if err != nil || p < 1 || p > 65535 {
 			return fmt.Errorf("invalid port %q", ps)
 		}
@@ -134,7 +142,6 @@ func RunWizard(opts WizardOptions) error {
 	if err != nil {
 		return err
 	}
-	token = strings.TrimSpace(token)
 	if token == "" {
 		return fmt.Errorf("auth token is required")
 	}
@@ -158,7 +165,7 @@ func RunWizard(opts WizardOptions) error {
 		if err != nil {
 			return err
 		}
-		savesAbs := expandPathAgainstHome(strings.TrimSpace(sp), home)
+		savesAbs := expandPathAgainstHome(sp, home)
 		savesForCfg = ShortenHome(savesAbs, home)
 	} else {
 		for i, root := range roots {
@@ -170,7 +177,7 @@ func RunWizard(opts WizardOptions) error {
 		if err != nil {
 			return err
 		}
-		ch = strings.ToLower(strings.TrimSpace(ch))
+		ch = strings.ToLower(ch)
 		switch ch {
 		case "c", "custom":
 			fmt.Fprintf(opts.ErrOut, "Path to saves root: ")
@@ -178,7 +185,6 @@ func RunWizard(opts WizardOptions) error {
 			if err != nil {
 				return err
 			}
-			sp = strings.TrimSpace(sp)
 			if sp == "" {
 				return fmt.Errorf("path required")
 			}

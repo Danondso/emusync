@@ -38,7 +38,9 @@ func TestRunWizard_writesFullConfig(t *testing.T) {
 		In:         strings.NewReader(input),
 		Out:        io.Discard,
 		ErrOut:     io.Discard,
-		Discover:   func(context.Context, time.Duration) []discovery.Server { return nil },
+		Discover: func(context.Context, time.Duration) ([]discovery.Server, error) {
+			return nil, nil
+		},
 		LookupWait: time.Millisecond,
 	})
 	if err != nil {
@@ -76,7 +78,9 @@ func TestRunWizard_rejectsExistingWithoutForce(t *testing.T) {
 		In:         strings.NewReader("\n"),
 		Out:        io.Discard,
 		ErrOut:     io.Discard,
-		Discover:   func(context.Context, time.Duration) []discovery.Server { return nil },
+		Discover: func(context.Context, time.Duration) ([]discovery.Server, error) {
+			return nil, nil
+		},
 		LookupWait: time.Millisecond,
 	})
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
