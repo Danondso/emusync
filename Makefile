@@ -5,6 +5,8 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 LDFLAGS := -s -w -X main.version=$(VERSION)
 # Docker Compose v2 CLI; set DOCKER_COMPOSE=docker-compose if you use the standalone binary
 DOCKER_COMPOSE ?= docker compose
+# Compose interpolates ${EMUSYNC_*}; exported EMUSYNC_* in your shell override project .env — clear so .env wins.
+DOCKER_ENV ?= env -u EMUSYNC_AUTH_TOKEN -u EMUSYNC_ADMIN_TOKEN -u EMUSYNC_MAX_BACKUPS -u EMUSYNC_ADVERTISE_MDNS
 
 build:
 	go build -ldflags="$(LDFLAGS)" -o $(BINARY) .
@@ -19,13 +21,13 @@ clean:
 	rm -f $(BINARY)
 
 docker:
-	$(DOCKER_COMPOSE) build
+	$(DOCKER_ENV) $(DOCKER_COMPOSE) build
 
 docker-up:
-	$(DOCKER_COMPOSE) up -d
+	$(DOCKER_ENV) $(DOCKER_COMPOSE) up -d
 
 docker-down:
-	$(DOCKER_COMPOSE) down
+	$(DOCKER_ENV) $(DOCKER_COMPOSE) down
 
 bootstrap-server:
 	./scripts/bootstrap-server.sh

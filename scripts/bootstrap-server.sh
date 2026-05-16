@@ -101,6 +101,13 @@ ensure_admin_token() {
 	chmod 600 "$env_file"
 }
 
+# Compose substitutes ${EMUSYNC_*...} from this process environment before it applies the project .env.
+# A stray export (for example after copying a token into your shell) overrides .env and the sync token
+# printed from .env will not match EMUSYNC_* inside the container.
+compose_without_shell_emusync_overrides() {
+	unset EMUSYNC_AUTH_TOKEN EMUSYNC_ADMIN_TOKEN EMUSYNC_MAX_BACKUPS EMUSYNC_ADVERTISE_MDNS || true
+}
+
 ensure_env() {
 	local env_file="$REPO_ROOT/.env"
 	local token admin tmp newf
@@ -140,20 +147,32 @@ ensure_env() {
 	chmod 600 "$env_file"
 }
 
+# Last assignment wins (matches compose when .env has duplicate keys). Strip CR for Windows-edited files.
+extract_env_value() {
+	local env_file="$1" key="$2"
+	local line val
+	line="$(grep "^${key}=" "$env_file" 2>/dev/null | tail -n1)" || true
+	if [[ -z "$line" ]]; then
+		echo ""
+		return
+	fi
+	val="$(printf '%s\n' "$line" | cut -d= -f2-)"
+	printf '%s' "$val" | tr -d '\r'
+}
+
 extract_token() {
-	local env_file="$REPO_ROOT/.env"
-	grep '^EMUSYNC_AUTH_TOKEN=' "$env_file" | head -n1 | cut -d= -f2-
+	extract_env_value "$REPO_ROOT/.env" "EMUSYNC_AUTH_TOKEN"
 }
 
 extract_admin_token() {
-	local env_file="$REPO_ROOT/.env"
-	grep '^EMUSYNC_ADMIN_TOKEN=' "$env_file" | head -n1 | cut -d= -f2-
+	extract_env_value "$REPO_ROOT/.env" "EMUSYNC_ADMIN_TOKEN"
 }
 
 check_docker
 ensure_env
 
 echo "bootstrap-server.sh: building and starting stack (docker compose up -d --build)..." >&2
+compose_without_shell_emusync_overrides
 docker compose -f "$COMPOSE_FILE" up -d --build
 
 TOKEN="$(extract_token)"
