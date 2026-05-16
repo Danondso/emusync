@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dublin/emusync/internal/authtoken"
 	"github.com/dublin/emusync/internal/discovery"
 )
 
@@ -22,15 +23,21 @@ type ServerConfig struct {
 	AuthToken     string
 	MaxBackups    int
 	AdvertiseMDNS bool
+	AdminToken    string
 }
 
 // ConfigFromEnv reads server configuration from environment variables.
 func ConfigFromEnv() ServerConfig {
+	authRaw := os.Getenv("EMUSYNC_AUTH_TOKEN")
+	adminRaw := os.Getenv("EMUSYNC_ADMIN_TOKEN")
 	cfg := ServerConfig{
 		Port:       8080,
 		DataDir:    "/data",
-		AuthToken:  os.Getenv("EMUSYNC_AUTH_TOKEN"),
+		AuthToken:  authtoken.Normalize(authRaw),
 		MaxBackups: 10,
+	}
+	if authtoken.WasTransformed(authRaw) && authRaw != "" {
+		slog.Info("normalized EMUSYNC_AUTH_TOKEN from environment (quotes/whitespace); verify intentional")
 	}
 
 	if p := os.Getenv("EMUSYNC_PORT"); p != "" {
@@ -47,6 +54,10 @@ func ConfigFromEnv() ServerConfig {
 		}
 	}
 	cfg.AdvertiseMDNS = strings.EqualFold(strings.TrimSpace(os.Getenv("EMUSYNC_ADVERTISE_MDNS")), "true")
+	cfg.AdminToken = authtoken.Normalize(adminRaw)
+	if authtoken.WasTransformed(adminRaw) && adminRaw != "" {
+		slog.Info("normalized EMUSYNC_ADMIN_TOKEN from environment (quotes/whitespace); verify intentional")
+	}
 
 	return cfg
 }
@@ -59,12 +70,18 @@ func Run(cfg ServerConfig) error {
 	mux := http.NewServeMux()
 	handlers.RegisterRoutes(mux)
 
-	var handler http.Handler = mux
+	var syncHandler http.Handler = mux
 	if cfg.AuthToken != "" {
-		handler = AuthMiddleware(cfg.AuthToken, mux)
+		syncHandler = AuthMiddleware(cfg.AuthToken, mux)
 		slog.Info("auth enabled")
 	} else {
 		slog.Warn("auth disabled (no EMUSYNC_AUTH_TOKEN set)")
+	}
+
+	handler := syncHandler
+	if cfg.AdminToken != "" {
+		handler = routeAdminFirst(handlers.AdminHandler(cfg.AdminToken), syncHandler)
+		slog.Info("admin API and web UI enabled under /admin/")
 	}
 
 	// Add request logging
@@ -104,6 +121,18 @@ func Run(cfg ServerConfig) error {
 		return fmt.Errorf("server error: %w", err)
 	}
 	return nil
+}
+
+func routeAdminFirst(admin http.Handler, sync http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// Restrict to "/admin", "/admin/", and subtree — not "/adminfoo" or "/administrator".
+		if path == "/admin" || strings.HasPrefix(path, "/admin/") {
+			admin.ServeHTTP(w, r)
+			return
+		}
+		sync.ServeHTTP(w, r)
+	})
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {

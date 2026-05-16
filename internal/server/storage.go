@@ -33,6 +33,11 @@ func NewStorage(dataDir string, maxBackups int) *Storage {
 	}
 }
 
+// DataDir returns the storage root directory.
+func (s *Storage) DataDir() string {
+	return s.dataDir
+}
+
 func (s *Storage) canonicalDir(emulator string) string {
 	return filepath.Join(s.dataDir, "canonical", emulator)
 }

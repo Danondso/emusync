@@ -25,7 +25,7 @@ Emusync automatically syncs your emulator saves and savestates across devices --
 ```
 
 - Requires Docker with the Compose v2 plugin (`docker compose`).
-- If `.env` already exists, the token is **left unchanged** unless you pass **`--force-token`** (every client must then be updated).
+- Creates **`EMUSYNC_AUTH_TOKEN`** and **`EMUSYNC_ADMIN_TOKEN`** in `.env`. If `.env` already exists, tokens are left unchanged unless the admin token is missing (bootstrap appends one) or you pass **`--force-token`**, which rotates **only** the sync auth token and preserves everything else — every client must then be updated for sync.
 - On failure, ensure `docker` works for your user (e.g. `docker` group).
 
 **Manual alternative:** copy `deploy/docker/.env.example` to `.env`, set `EMUSYNC_AUTH_TOKEN`, then `make docker-up`.
@@ -79,6 +79,7 @@ emusync pull               # Manually download all saves
 emusync status             # Show local vs server sync state
 emusync history <emu> <path>  # View version history for a save file
 emusync resolve            # Interactively resolve sync conflicts
+emusync pull-profile       # Apply server admin profile to local [[emulators]] (needs EMUSYNC_ADMIN_TOKEN)
 emusync server             # Run the server (used by Docker entrypoint)
 ```
 
@@ -117,6 +118,20 @@ process_names = ["my-emu", "my-emu.AppImage"]
 save_paths = ["my-emulator/saves", "my-emulator/states"]
 ```
 
+### Server admin web UI (optional)
+
+When `EMUSYNC_ADMIN_TOKEN` is set for the server container, browse **`http://<host>:8080/admin/`**.
+
+- Paste the same token in the page to call the admin API from your browser.
+- Resolve conflicts (same JSON API as `emusync resolve`), inspect status, and edit the **profile** JSON pushed to clients via `emusync pull-profile`.
+
+On a client:
+
+```bash
+export EMUSYNC_ADMIN_TOKEN='same-secret-as-server'
+emusync pull-profile   # uses server.host from config.toml
+```
+
 ### Server Environment Variables
 
 | Variable | Default | Description |
@@ -124,7 +139,9 @@ save_paths = ["my-emulator/saves", "my-emulator/states"]
 | `EMUSYNC_PORT` | `8080` | Listen port |
 | `EMUSYNC_DATA_DIR` | `/data` | Save data directory |
 | `EMUSYNC_AUTH_TOKEN` | — | Bearer token for API auth |
+| `EMUSYNC_ADMIN_TOKEN` | — | Bearer token for `/admin` (optional) |
 | `EMUSYNC_MAX_BACKUPS` | `10` | Versions to retain per file |
+| `EMUSYNC_ADVERTISE_MDNS` | `false` | Advertise `_emusync._tcp` on the LAN |
 
 ## Building
 

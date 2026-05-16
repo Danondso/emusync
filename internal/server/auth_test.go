@@ -30,6 +30,18 @@ func TestAuthMiddleware(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:       "valid_token_lowercase_bearer",
+			token:      "secret123",
+			authHeader: "bearer secret123",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "valid_token_quoted_credential",
+			token:      "secret123",
+			authHeader: `Bearer "secret123"`,
+			wantStatus: http.StatusOK,
+		},
+		{
 			name:       "wrong_token",
 			token:      "secret123",
 			authHeader: "Bearer wrongtoken",

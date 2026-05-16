@@ -14,6 +14,7 @@ services:
       - EMUSYNC_AUTH_TOKEN=${EMUSYNC_AUTH_TOKEN:?EMUSYNC_AUTH_TOKEN must be set}
       - EMUSYNC_MAX_BACKUPS=${EMUSYNC_MAX_BACKUPS:-10}
       - EMUSYNC_ADVERTISE_MDNS=${EMUSYNC_ADVERTISE_MDNS:-false}
+      - EMUSYNC_ADMIN_TOKEN=${EMUSYNC_ADMIN_TOKEN:-}
     # Health endpoint requires Bearer auth when EMUSYNC_AUTH_TOKEN is set.
     healthcheck:
       test:

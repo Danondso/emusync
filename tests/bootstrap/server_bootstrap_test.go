@@ -123,25 +123,19 @@ func TestBootstrapCreatesEnvAndRunsCompose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	line := strings.TrimSpace(string(envBytes))
-	if !strings.HasPrefix(line, "EMUSYNC_AUTH_TOKEN=") {
-		t.Fatalf(".env line: %q", line)
-	}
-	token := strings.TrimPrefix(line, "EMUSYNC_AUTH_TOKEN=")
-	if len(token) < 16 {
-		t.Fatalf("token too short: %q", token)
-	}
+	s := strings.TrimSpace(string(envBytes))
+	parseEnvTokens(t, s)
 
 	logBytes, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(logBytes)
-	if !strings.Contains(s, "compose version") {
-		t.Fatalf("expected compose version call, log:\n%s", s)
+	logStr := string(logBytes)
+	if !strings.Contains(logStr, "compose version") {
+		t.Fatalf("expected compose version call, log:\n%s", logStr)
 	}
-	if !strings.Contains(s, "up -d --build") {
-		t.Fatalf("expected compose up, log:\n%s", s)
+	if !strings.Contains(logStr, "up -d --build") {
+		t.Fatalf("expected compose up, log:\n%s", logStr)
 	}
 }
 
@@ -191,6 +185,7 @@ func TestBootstrapForceTokenRotates(t *testing.T) {
 
 	runBootstrap(t, repo, envPrefix)
 	first := strings.TrimSpace(string(readFile(t, filepath.Join(repo, ".env"))))
+	auth1, admin1 := parseEnvTokens(t, first)
 
 	script := filepath.Join(projectRoot(t), "scripts", "bootstrap-server.sh")
 	cmd := exec.Command("bash", script, "--force-token")
@@ -205,10 +200,39 @@ func TestBootstrapForceTokenRotates(t *testing.T) {
 		t.Fatalf("expected rotation warning on stderr: %q", stderr.String())
 	}
 
-	second := strings.TrimSpace(string(readFile(t, filepath.Join(repo, ".env"))))
-	if first == second {
-		t.Fatal("expected token to change with --force-token")
+	secondRaw := strings.TrimSpace(string(readFile(t, filepath.Join(repo, ".env"))))
+	auth2, admin2 := parseEnvTokens(t, secondRaw)
+
+	if auth1 == auth2 {
+		t.Fatal("expected auth token to change with --force-token")
 	}
+	if admin2 != admin1 {
+		t.Fatalf("admin token should not rotate with --force-token; was %q now %q", admin1, admin2)
+	}
+}
+
+func parseEnvTokens(t *testing.T, envContent string) (auth string, admin string) {
+	t.Helper()
+	auth = envValue(envContent, "EMUSYNC_AUTH_TOKEN")
+	if auth == "" {
+		t.Fatal("missing EMUSYNC_AUTH_TOKEN")
+	}
+	admin = envValue(envContent, "EMUSYNC_ADMIN_TOKEN")
+	if admin == "" {
+		t.Fatal("missing EMUSYNC_ADMIN_TOKEN")
+	}
+	return auth, admin
+}
+
+func envValue(envContent, key string) string {
+	prefix := key + "="
+	for _, line := range strings.Split(envContent, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimPrefix(line, prefix)
+		}
+	}
+	return ""
 }
 
 func readFile(t *testing.T, path string) []byte {
@@ -218,6 +242,63 @@ func readFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestBootstrapAddsAdminTokenWhenLegacyEnv(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "docker-compose.yml"), []byte(minimalComposeYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacyEnv := "EMUSYNC_AUTH_TOKEN=fixed_legacy_auth_token_xx\n"
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte(legacyEnv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	writeFakeDocker(t, binDir, filepath.Join(repo, "docker-invocations.log"))
+
+	runBootstrap(t, repo, []string{
+		"EMUSYNC_REPO_ROOT=" + repo,
+		"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	raw := strings.TrimSpace(string(readFile(t, filepath.Join(repo, ".env"))))
+	auth, admin := parseEnvTokens(t, raw)
+	if auth != "fixed_legacy_auth_token_xx" {
+		t.Fatalf("auth should stay legacy, got %q", auth)
+	}
+	if len(admin) < 16 {
+		t.Fatalf("expected generated admin token, got %q", admin)
+	}
+}
+
+func TestBootstrapReplacesEmptyAdminTokenLineWithoutDuplicateKey(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "docker-compose.yml"), []byte(minimalComposeYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacyEnv := "EMUSYNC_AUTH_TOKEN=myauth_xx\nEMUSYNC_ADMIN_TOKEN=\n"
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte(legacyEnv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	writeFakeDocker(t, binDir, filepath.Join(repo, "docker-invocations.log"))
+
+	runBootstrap(t, repo, []string{
+		"EMUSYNC_REPO_ROOT=" + repo,
+		"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	raw := strings.TrimSpace(string(readFile(t, filepath.Join(repo, ".env"))))
+	auth, admin := parseEnvTokens(t, raw)
+	if auth != "myauth_xx" {
+		t.Fatalf("auth unchanged, got %q", auth)
+	}
+	if len(admin) < 16 {
+		t.Fatalf("expected generated admin token, got %q", admin)
+	}
+	if c := strings.Count(raw, "EMUSYNC_ADMIN_TOKEN="); c != 1 {
+		t.Fatalf("want exactly one EMUSYNC_ADMIN_TOKEN line, got count=%d raw:\n%s", c, raw)
+	}
 }
 
 func TestBootstrapEnvFilePermissions(t *testing.T) {

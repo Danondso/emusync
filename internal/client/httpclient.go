@@ -96,6 +96,11 @@ func (c *APIClient) GetManifest(ctx context.Context, emulator string) (*model.Ma
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		msg := strings.TrimSpace(string(body))
+		if msg != "" {
+			return nil, fmt.Errorf("server returned %d: %s", resp.StatusCode, msg)
+		}
 		return nil, fmt.Errorf("server returned %d", resp.StatusCode)
 	}
 

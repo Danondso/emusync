@@ -112,3 +112,14 @@ func TestInit_AcceptsVerboseFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCLI_PullProfileFindable(t *testing.T) {
+	t.Cleanup(func() { resetRootArgsAndIO(t) })
+	cmd, _, err := rootCmd.Find([]string{"pull-profile"})
+	if err != nil {
+		t.Fatalf("Find: %v", err)
+	}
+	if cmd.Name() != "pull-profile" {
+		t.Fatalf("command name = %q, want pull-profile", cmd.Name())
+	}
+}

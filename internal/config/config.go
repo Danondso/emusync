@@ -2,11 +2,13 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/dublin/emusync/internal/authtoken"
 	"github.com/dublin/emusync/internal/model"
 )
 
@@ -98,6 +100,11 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	rawTok := c.Server.AuthToken
+	c.Server.AuthToken = authtoken.Normalize(c.Server.AuthToken)
+	if authtoken.WasTransformed(rawTok) {
+		slog.Info("config: normalized server.auth_token from file (quotes/whitespace changed); verify this was intentional")
+	}
 	if strings.TrimSpace(c.Server.Host) == "" {
 		c.Server.Host = "127.0.0.1"
 	}
