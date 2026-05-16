@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/dublin/emusync/internal/config"
 	"github.com/dublin/emusync/internal/hasher"
@@ -20,6 +21,7 @@ type Syncer struct {
 	cfg    *config.Config
 	client *APIClient
 	state  *SyncState
+	mu     sync.Mutex // serializes state updates + atomic rename of state.json
 }
 
 // SyncState tracks last-synced hashes per file.
@@ -50,6 +52,9 @@ func NewSyncerWithStatePath(cfg *config.Config, statePath string) *Syncer {
 
 // SyncAfterExit syncs saves after an emulator exits (upload changed files).
 func (s *Syncer) SyncAfterExit(ctx context.Context, emu *model.EmulatorConfig) (*model.SyncResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	slog.Info("sync after exit", "emulator", emu.Name)
 	result := &model.SyncResult{Emulator: emu.Name}
 
@@ -131,6 +136,9 @@ func (s *Syncer) SyncAfterExit(ctx context.Context, emu *model.EmulatorConfig) (
 
 // SyncBeforeLaunch pulls latest saves from server before an emulator starts.
 func (s *Syncer) SyncBeforeLaunch(ctx context.Context, emu *model.EmulatorConfig) (*model.SyncResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	slog.Info("sync before launch", "emulator", emu.Name)
 	result := &model.SyncResult{Emulator: emu.Name}
 
