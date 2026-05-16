@@ -17,6 +17,9 @@ Environment:
                       parent of this script's directory).
 
 Docker must be installed with the Compose v2 plugin ("docker compose").
+
+Printed sync/admin tokens reflect the LAST matching assignment per key in .env when
+keys are duplicated (matching Docker Compose "last wins").
 EOF
 }
 
@@ -88,7 +91,7 @@ generate_token() {
 	exit 1
 }
 
-# Appends EMUSYNC_ADMIN_TOKEN if unset or empty (handles legacy single-line .env).
+# Appends EMUSYNC_ADMIN_TOKEN if unset or replaces an empty EMUSYNC_ADMIN_TOKEN= line (handles legacy/.env.example).
 ensure_admin_token() {
 	local env_file="$1"
 	if grep -qE '^EMUSYNC_ADMIN_TOKEN=.+' "$env_file" 2>/dev/null; then
@@ -97,7 +100,14 @@ ensure_admin_token() {
 	local admin
 	admin="$(generate_token)"
 	admin="$(echo -n "$admin" | tr -d '\n\r')"
-	printf 'EMUSYNC_ADMIN_TOKEN=%s\n' "$admin" >>"$env_file"
+	if grep -qE '^EMUSYNC_ADMIN_TOKEN=' "$env_file" 2>/dev/null; then
+		local tmp
+		tmp="${env_file}.admin.$$"
+		sed "s/^EMUSYNC_ADMIN_TOKEN=.*/EMUSYNC_ADMIN_TOKEN=${admin}/" "$env_file" >"$tmp"
+		mv "$tmp" "$env_file"
+	else
+		printf 'EMUSYNC_ADMIN_TOKEN=%s\n' "$admin" >>"$env_file"
+	fi
 	chmod 600 "$env_file"
 }
 
@@ -148,6 +158,7 @@ ensure_env() {
 }
 
 # Last assignment wins (matches compose when .env has duplicate keys). Strip CR for Windows-edited files.
+# Printed tokens inherit this semantics; avoid duplicate *_TOKEN lines unless intentional.
 extract_env_value() {
 	local env_file="$1" key="$2"
 	local line val

@@ -17,3 +17,8 @@ func Normalize(s string) string {
 	}
 	return s
 }
+
+// WasTransformed reports whether [Normalize] would change raw (whitespace trimming or quote stripping).
+func WasTransformed(raw string) bool {
+	return Normalize(raw) != raw
+}

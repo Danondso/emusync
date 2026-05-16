@@ -21,7 +21,7 @@ type Syncer struct {
 	cfg    *config.Config
 	client *APIClient
 	state  *SyncState
-	mu     sync.Mutex // serializes state updates + atomic rename of state.json
+	mu     sync.Mutex // serializes sync operations end-to-end so launch/exit workflows never interleave (state + I/O).
 }
 
 // SyncState tracks last-synced hashes per file.

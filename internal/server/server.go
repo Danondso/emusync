@@ -28,11 +28,16 @@ type ServerConfig struct {
 
 // ConfigFromEnv reads server configuration from environment variables.
 func ConfigFromEnv() ServerConfig {
+	authRaw := os.Getenv("EMUSYNC_AUTH_TOKEN")
+	adminRaw := os.Getenv("EMUSYNC_ADMIN_TOKEN")
 	cfg := ServerConfig{
 		Port:       8080,
 		DataDir:    "/data",
-		AuthToken:  authtoken.Normalize(os.Getenv("EMUSYNC_AUTH_TOKEN")),
+		AuthToken:  authtoken.Normalize(authRaw),
 		MaxBackups: 10,
+	}
+	if authtoken.WasTransformed(authRaw) && authRaw != "" {
+		slog.Info("normalized EMUSYNC_AUTH_TOKEN from environment (quotes/whitespace); verify intentional")
 	}
 
 	if p := os.Getenv("EMUSYNC_PORT"); p != "" {
@@ -49,7 +54,10 @@ func ConfigFromEnv() ServerConfig {
 		}
 	}
 	cfg.AdvertiseMDNS = strings.EqualFold(strings.TrimSpace(os.Getenv("EMUSYNC_ADVERTISE_MDNS")), "true")
-	cfg.AdminToken = authtoken.Normalize(os.Getenv("EMUSYNC_ADMIN_TOKEN"))
+	cfg.AdminToken = authtoken.Normalize(adminRaw)
+	if authtoken.WasTransformed(adminRaw) && adminRaw != "" {
+		slog.Info("normalized EMUSYNC_ADMIN_TOKEN from environment (quotes/whitespace); verify intentional")
+	}
 
 	return cfg
 }
@@ -117,7 +125,9 @@ func Run(cfg ServerConfig) error {
 
 func routeAdminFirst(admin http.Handler, sync http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/admin") {
+		path := r.URL.Path
+		// Restrict to "/admin", "/admin/", and subtree — not "/adminfoo" or "/administrator".
+		if path == "/admin" || strings.HasPrefix(path, "/admin/") {
 			admin.ServeHTTP(w, r)
 			return
 		}

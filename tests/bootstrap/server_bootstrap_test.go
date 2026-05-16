@@ -271,6 +271,36 @@ func TestBootstrapAddsAdminTokenWhenLegacyEnv(t *testing.T) {
 	}
 }
 
+func TestBootstrapReplacesEmptyAdminTokenLineWithoutDuplicateKey(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "docker-compose.yml"), []byte(minimalComposeYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	legacyEnv := "EMUSYNC_AUTH_TOKEN=myauth_xx\nEMUSYNC_ADMIN_TOKEN=\n"
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte(legacyEnv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	writeFakeDocker(t, binDir, filepath.Join(repo, "docker-invocations.log"))
+
+	runBootstrap(t, repo, []string{
+		"EMUSYNC_REPO_ROOT=" + repo,
+		"PATH=" + binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+
+	raw := strings.TrimSpace(string(readFile(t, filepath.Join(repo, ".env"))))
+	auth, admin := parseEnvTokens(t, raw)
+	if auth != "myauth_xx" {
+		t.Fatalf("auth unchanged, got %q", auth)
+	}
+	if len(admin) < 16 {
+		t.Fatalf("expected generated admin token, got %q", admin)
+	}
+	if c := strings.Count(raw, "EMUSYNC_ADMIN_TOKEN="); c != 1 {
+		t.Fatalf("want exactly one EMUSYNC_ADMIN_TOKEN line, got count=%d raw:\n%s", c, raw)
+	}
+}
+
 func TestBootstrapEnvFilePermissions(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "docker-compose.yml"), []byte(minimalComposeYAML), 0o644); err != nil {

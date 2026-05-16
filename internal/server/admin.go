@@ -17,6 +17,7 @@ import (
 var adminWeb embed.FS
 
 // AdminBearerMiddleware enforces Authorization: Bearer <admin token>.
+// Pass a non-empty adminToken; callers that disable admin should omit these routes entirely (see Run).
 func AdminBearerMiddleware(token string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if token == "" {
@@ -43,6 +44,7 @@ func AdminBearerMiddleware(token string, next http.Handler) http.Handler {
 }
 
 // AdminHandler serves /admin static UI and /admin/api/v1/* JSON when adminToken is non-empty.
+// Passing an empty token returns NotFound for all paths (admin should be disabled at the top level via Run instead).
 func (h *Handlers) AdminHandler(adminToken string) http.Handler {
 	if adminToken == "" {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,9 +114,28 @@ func (h *Handlers) handleAdminPutProfile(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "version must be 1", http.StatusBadRequest)
 		return
 	}
+	if len(doc.Emulators) == 0 {
+		http.Error(w, "emulators must be a non-empty array", http.StatusBadRequest)
+		return
+	}
+	seenNames := map[string]struct{}{}
 	for _, e := range doc.Emulators {
+		if _, dup := seenNames[e.Name]; dup {
+			http.Error(w, "duplicate emulator name: "+e.Name, http.StatusBadRequest)
+			return
+		}
+		seenNames[e.Name] = struct{}{}
+
 		if err := ValidateName(e.Name); err != nil {
 			http.Error(w, "invalid emulator name: "+e.Name, http.StatusBadRequest)
+			return
+		}
+		if len(e.ProcessNames) == 0 {
+			http.Error(w, "process_names required (non-empty) for emulator "+e.Name, http.StatusBadRequest)
+			return
+		}
+		if len(e.SavePaths) == 0 {
+			http.Error(w, "save_paths required (non-empty) for emulator "+e.Name, http.StatusBadRequest)
 			return
 		}
 		for _, pn := range e.ProcessNames {

@@ -24,6 +24,9 @@ func (s *Storage) profilePath() string {
 
 // ReadProfile loads the admin profile or returns defaults when missing.
 func (s *Storage) ReadProfile() (*ProfileDocument, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	path := s.profilePath()
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -47,6 +50,9 @@ func (s *Storage) ReadProfile() (*ProfileDocument, error) {
 
 // WriteProfile replaces the admin profile atomically.
 func (s *Storage) WriteProfile(doc *ProfileDocument) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if doc == nil {
 		return fmt.Errorf("profile is nil")
 	}

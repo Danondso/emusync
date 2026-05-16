@@ -44,6 +44,56 @@ func TestAdminAPIRequiresBearer(t *testing.T) {
 	}
 }
 
+func TestAdminPutProfileRequiresNonEmptyEmulatorsAndSlices(t *testing.T) {
+	st := NewStorage(t.TempDir(), 10)
+	h := NewHandlers(st)
+	srv := httptest.NewServer(routeAdminFirst(h.AdminHandler("admintok"), http.HandlerFunc(http.NotFound)))
+	t.Cleanup(srv.Close)
+
+	tests := []struct {
+		body string
+	}{
+		{`{"version":1,"emulators":[]}`},
+		{`{"version":1,"emulators":[{"name":"a","process_names":["p"],"save_paths":[]}]}`},
+		{`{"version":1,"emulators":[{"name":"a","process_names":[],"save_paths":["s"]}]}`},
+		{`{"version":1,"emulators":[{"name":"a","process_names":["p"],"save_paths":["s"]},{"name":"a","process_names":["p2"],"save_paths":["s2"]}]}`},
+	}
+	for _, tt := range tests {
+		req, _ := http.NewRequest(http.MethodPut, srv.URL+"/admin/api/v1/profile", strings.NewReader(tt.body))
+		req.Header.Set("Authorization", "Bearer admintok")
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest {
+			t.Fatalf("want 400 for body %s, got %d", tt.body, res.StatusCode)
+		}
+	}
+}
+
+func TestRouteAdminDoesNotInterceptAdminAdjacentPaths(t *testing.T) {
+	st := NewStorage(t.TempDir(), 10)
+	h := NewHandlers(st)
+	syncHit := false
+	srv := httptest.NewServer(routeAdminFirst(h.AdminHandler("tok"), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		syncHit = true
+		w.WriteHeader(http.StatusTeapot)
+	})))
+	t.Cleanup(srv.Close)
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/administrator", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if !syncHit || res.StatusCode != http.StatusTeapot {
+		t.Fatalf("expected sync handler hit (418); syncHit=%v status=%d", syncHit, res.StatusCode)
+	}
+}
+
 func TestAdminPutProfileValidatesNames(t *testing.T) {
 	st := NewStorage(t.TempDir(), 10)
 	h := NewHandlers(st)
