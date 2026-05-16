@@ -30,7 +30,7 @@ func ConfigFromEnv() ServerConfig {
 	cfg := ServerConfig{
 		Port:       8080,
 		DataDir:    "/data",
-		AuthToken:  os.Getenv("EMUSYNC_AUTH_TOKEN"),
+		AuthToken:  strings.TrimSpace(os.Getenv("EMUSYNC_AUTH_TOKEN")),
 		MaxBackups: 10,
 	}
 

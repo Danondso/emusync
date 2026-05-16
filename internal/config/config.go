@@ -98,6 +98,7 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	c.Server.AuthToken = strings.TrimSpace(c.Server.AuthToken)
 	if strings.TrimSpace(c.Server.Host) == "" {
 		c.Server.Host = "127.0.0.1"
 	}
