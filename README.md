@@ -25,7 +25,7 @@ Emusync automatically syncs your emulator saves and savestates across devices --
 ```
 
 - Requires Docker with the Compose v2 plugin (`docker compose`).
-- If `.env` already exists, the token is **left unchanged** unless you pass **`--force-token`** (every client must then be updated).
+- Creates **`EMUSYNC_AUTH_TOKEN`** and **`EMUSYNC_ADMIN_TOKEN`** in `.env`. If `.env` already exists, tokens are left unchanged unless the admin token is missing (bootstrap appends one) or you pass **`--force-token`**, which rotates **only** the sync auth token and preserves everything else — every client must then be updated for sync.
 - On failure, ensure `docker` works for your user (e.g. `docker` group).
 
 **Manual alternative:** copy `deploy/docker/.env.example` to `.env`, set `EMUSYNC_AUTH_TOKEN`, then `make docker-up`.

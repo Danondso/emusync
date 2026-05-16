@@ -8,7 +8,8 @@ usage() {
 Usage: bootstrap-server.sh [--force-token]
 
 Options:
-  --force-token   Write a new EMUSYNC_AUTH_TOKEN even when .env exists.
+  --force-token   Write a new EMUSYNC_AUTH_TOKEN even when .env exists (other
+                  variables are preserved).
                   WARNING: every client must be updated with the new token.
 
 Environment:
@@ -87,25 +88,66 @@ generate_token() {
 	exit 1
 }
 
-ensure_env() {
-	local env_file="$REPO_ROOT/.env"
-	if [[ -f "$env_file" ]] && [[ "$FORCE_TOKEN" != true ]]; then
+# Appends EMUSYNC_ADMIN_TOKEN if unset or empty (handles legacy single-line .env).
+ensure_admin_token() {
+	local env_file="$1"
+	if grep -qE '^EMUSYNC_ADMIN_TOKEN=.+' "$env_file" 2>/dev/null; then
 		return 0
 	fi
+	local admin
+	admin="$(generate_token)"
+	admin="$(echo -n "$admin" | tr -d '\n\r')"
+	printf 'EMUSYNC_ADMIN_TOKEN=%s\n' "$admin" >>"$env_file"
+	chmod 600 "$env_file"
+}
+
+ensure_env() {
+	local env_file="$REPO_ROOT/.env"
+	local token admin tmp newf
+
+	if [[ -f "$env_file" ]] && [[ "$FORCE_TOKEN" != true ]]; then
+		ensure_admin_token "$env_file"
+		return 0
+	fi
+
 	if [[ -f "$env_file" ]] && [[ "$FORCE_TOKEN" == true ]]; then
 		echo "bootstrap-server.sh: Rotating EMUSYNC_AUTH_TOKEN (--force-token)." >&2
 		echo "bootstrap-server.sh: Update auth_token on every client before syncing." >&2
+		token="$(generate_token)"
+		token="$(echo -n "$token" | tr -d '\n\r')"
+		tmp="$env_file.tmp.$$"
+		newf="$env_file.new.$$"
+		(grep -v '^EMUSYNC_AUTH_TOKEN=' "$env_file" 2>/dev/null || true) >"$tmp"
+		{
+			printf 'EMUSYNC_AUTH_TOKEN=%s\n' "$token"
+			cat "$tmp"
+		} >"$newf"
+		mv "$newf" "$env_file"
+		rm -f "$tmp"
+		chmod 600 "$env_file"
+		ensure_admin_token "$env_file"
+		return 0
 	fi
-	local token
+
 	token="$(generate_token)"
 	token="$(echo -n "$token" | tr -d '\n\r')"
-	printf 'EMUSYNC_AUTH_TOKEN=%s\n' "$token" >"$env_file"
+	admin="$(generate_token)"
+	admin="$(echo -n "$admin" | tr -d '\n\r')"
+	{
+		printf 'EMUSYNC_AUTH_TOKEN=%s\n' "$token"
+		printf 'EMUSYNC_ADMIN_TOKEN=%s\n' "$admin"
+	} >"$env_file"
 	chmod 600 "$env_file"
 }
 
 extract_token() {
 	local env_file="$REPO_ROOT/.env"
 	grep '^EMUSYNC_AUTH_TOKEN=' "$env_file" | head -n1 | cut -d= -f2-
+}
+
+extract_admin_token() {
+	local env_file="$REPO_ROOT/.env"
+	grep '^EMUSYNC_ADMIN_TOKEN=' "$env_file" | head -n1 | cut -d= -f2-
 }
 
 check_docker
@@ -115,10 +157,15 @@ echo "bootstrap-server.sh: building and starting stack (docker compose up -d --b
 docker compose -f "$COMPOSE_FILE" up -d --build
 
 TOKEN="$(extract_token)"
+ADMIN="$(extract_admin_token)"
 echo ""
 echo "emusync server is starting."
 echo "  Health:   http://127.0.0.1:8080/api/v1/health"
-echo "  Use this auth token in client config (server.auth_token):"
+echo "  Use this sync auth token in client config (server.auth_token):"
 echo "  $TOKEN"
+echo ""
+echo "  Admin UI: http://127.0.0.1:8080/admin/"
+echo "  Paste this admin token into the browser (also saved as EMUSYNC_ADMIN_TOKEN in .env):"
+echo "  $ADMIN"
 echo ""
 echo "Next: run emusync setup on each client, or edit ~/.config/emusync/config.toml."
