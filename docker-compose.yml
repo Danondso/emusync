@@ -12,9 +12,15 @@ services:
       - EMUSYNC_PORT=8080
       - EMUSYNC_DATA_DIR=/data
       - EMUSYNC_AUTH_TOKEN=${EMUSYNC_AUTH_TOKEN:?EMUSYNC_AUTH_TOKEN must be set}
-      - EMUSYNC_MAX_BACKUPS=10
+      - EMUSYNC_MAX_BACKUPS=${EMUSYNC_MAX_BACKUPS:-10}
+      - EMUSYNC_ADVERTISE_MDNS=${EMUSYNC_ADVERTISE_MDNS:-false}
+    # Health endpoint requires Bearer auth when EMUSYNC_AUTH_TOKEN is set.
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/v1/health"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null --header=\"Authorization: Bearer $$EMUSYNC_AUTH_TOKEN\" http://127.0.0.1:8080/api/v1/health || exit 1",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3

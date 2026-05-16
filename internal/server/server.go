@@ -8,16 +8,20 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/dublin/emusync/internal/discovery"
 )
 
 // ServerConfig holds server runtime configuration, typically from env vars.
 type ServerConfig struct {
-	Port       int
-	DataDir    string
-	AuthToken  string
-	MaxBackups int
+	Port          int
+	DataDir       string
+	AuthToken     string
+	MaxBackups    int
+	AdvertiseMDNS bool
 }
 
 // ConfigFromEnv reads server configuration from environment variables.
@@ -42,6 +46,7 @@ func ConfigFromEnv() ServerConfig {
 			cfg.MaxBackups = max
 		}
 	}
+	cfg.AdvertiseMDNS = strings.EqualFold(strings.TrimSpace(os.Getenv("EMUSYNC_ADVERTISE_MDNS")), "true")
 
 	return cfg
 }
@@ -76,6 +81,15 @@ func Run(cfg ServerConfig) error {
 	// Graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if cfg.AdvertiseMDNS {
+		go func() {
+			if err := discovery.Advertise(ctx, cfg.Port, ""); err != nil && ctx.Err() == nil {
+				slog.Warn("mdns advertiser stopped", "error", err)
+			}
+		}()
+		slog.Info("mDNS advertisement enabled", "service", "_emusync._tcp", "port", cfg.Port)
+	}
 
 	go func() {
 		<-ctx.Done()

@@ -40,15 +40,21 @@ The server listens on port 8080 with save data persisted in a Docker volume.
    make install
    ```
 
-2. Generate a starter config:
+2. Create a starter config (optional):
 
    ```bash
    emusync init
    ```
 
-3. Edit `~/.config/emusync/config.toml` — set your server host, auth token, device ID, and saves path.
+3. Run interactive setup (LAN mDNS discovery, token, autodetected save roots):
 
-   _(Interactive `emusync setup` with LAN discovery is added in a follow-up PR.)_
+   ```bash
+   emusync setup
+   ```
+
+   Use `emusync setup --force` to overwrite an existing config. You can still edit `~/.config/emusync/config.toml` by hand.
+
+   **Server LAN advertisement:** set `EMUSYNC_ADVERTISE_MDNS=true` for the server container (see `docker-compose.yml`) so clients can find it via mDNS (`_emusync._tcp`). This is best on bare-metal or host-network setups; inside default bridge Docker, mDNS usually does not reach your LAN.
 
 4. Start the watcher:
 
@@ -67,6 +73,7 @@ The server listens on port 8080 with save data persisted in a Docker volume.
 
 ```
 emusync watch              # Monitor emulators and auto-sync saves
+emusync setup              # Interactive config (mDNS + save path autodetect)
 emusync push               # Manually upload all saves
 emusync pull               # Manually download all saves
 emusync status             # Show local vs server sync state

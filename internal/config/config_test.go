@@ -18,6 +18,9 @@ func writeTOML(t *testing.T, content string) string {
 
 func TestLoad_Valid(t *testing.T) {
 	path := writeTOML(t, `
+[server]
+host = "127.0.0.1"
+
 [client]
 device_id = "my-deck"
 `)
@@ -32,6 +35,9 @@ device_id = "my-deck"
 
 func TestLoad_AppliesDefaults(t *testing.T) {
 	path := writeTOML(t, `
+[server]
+host = "127.0.0.1"
+
 [client]
 device_id = "test-device"
 `)
@@ -63,7 +69,11 @@ device_id = "test-device"
 func TestLoad_MissingDeviceID(t *testing.T) {
 	path := writeTOML(t, `
 [server]
+host = "127.0.0.1"
 port = 9090
+
+[client]
+device_id = ""
 `)
 	_, err := Load(path)
 	if err == nil {
@@ -76,6 +86,9 @@ port = 9090
 
 func TestLoad_InvalidConflictStrategy(t *testing.T) {
 	path := writeTOML(t, `
+[server]
+host = "127.0.0.1"
+
 [client]
 device_id = "test"
 
@@ -94,6 +107,9 @@ func TestLoad_ValidStrategies(t *testing.T) {
 	for _, strategy := range strategies {
 		t.Run(strategy, func(t *testing.T) {
 			path := writeTOML(t, `
+[server]
+host = "127.0.0.1"
+
 [client]
 device_id = "test"
 
@@ -105,6 +121,37 @@ conflict_strategy = "`+strategy+`"
 				t.Fatalf("strategy %q should be valid, got error: %v", strategy, err)
 			}
 		})
+	}
+}
+
+func TestLoad_DefaultsEmptyServerHost(t *testing.T) {
+	path := writeTOML(t, `
+[client]
+device_id = "deck"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Server.Host != "127.0.0.1" {
+		t.Errorf("Host = %q, want 127.0.0.1", cfg.Server.Host)
+	}
+}
+
+func TestSave_ValidateErrorDoesNotMutateOriginal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := &Config{
+		Server: ServerConfig{Host: "127.0.0.1", Port: 8080},
+		Client: ClientConfig{SavesPath: "~/Emulation/saves"},
+	}
+	orig := *cfg
+	err := Save(path, cfg)
+	if err == nil {
+		t.Fatal("expected validation error for empty device_id")
+	}
+	if cfg.Client != orig.Client || cfg.Server != orig.Server {
+		t.Fatalf("cfg mutated on failed Save: diff server=%+v client=%+v vs orig client=%+v",
+			cfg.Server, cfg.Client, orig.Client)
 	}
 }
 

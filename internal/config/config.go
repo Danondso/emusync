@@ -12,9 +12,9 @@ import (
 
 // Config is the top-level configuration.
 type Config struct {
-	Server    ServerConfig          `toml:"server"`
-	Client    ClientConfig          `toml:"client"`
-	Sync      SyncConfig            `toml:"sync"`
+	Server    ServerConfig           `toml:"server"`
+	Client    ClientConfig           `toml:"client"`
+	Sync      SyncConfig             `toml:"sync"`
 	Emulators []model.EmulatorConfig `toml:"emulators"`
 }
 
@@ -98,6 +98,9 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if strings.TrimSpace(c.Server.Host) == "" {
+		c.Server.Host = "127.0.0.1"
+	}
 	if c.Server.Port == 0 {
 		c.Server.Port = 8080
 	}
@@ -105,7 +108,8 @@ func (c *Config) applyDefaults() {
 		c.Client.SavesPath = "~/Emulation/saves"
 	}
 	if c.Client.BackupPath == "" {
-		c.Client.BackupPath = "~/Emulation/saves/.sync-backups"
+		base := expandHome(c.Client.SavesPath)
+		c.Client.BackupPath = pathToTilde(filepath.Join(base, ".sync-backups"))
 	}
 	if c.Client.MaxLocalBackups == 0 {
 		c.Client.MaxLocalBackups = 10
@@ -153,4 +157,110 @@ func expandHome(path string) string {
 		return filepath.Join(home, path[2:])
 	}
 	return path
+}
+
+// Normalize applies default values to unset fields.
+func (c *Config) Normalize() {
+	c.applyDefaults()
+}
+
+func pathToTilde(abs string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return abs
+	}
+	abs = filepath.Clean(abs)
+	home = filepath.Clean(home)
+	if abs == home {
+		return "~"
+	}
+	prefix := home + string(filepath.Separator)
+	if strings.HasPrefix(abs, prefix) {
+		return filepath.Join("~", strings.TrimPrefix(abs, prefix))
+	}
+	return abs
+}
+
+// Save writes cfg as TOML to path (0600), replacing atomically.
+func Save(path string, cfg *Config) error {
+	toSave := *cfg
+	if len(cfg.Emulators) > 0 {
+		toSave.Emulators = append([]model.EmulatorConfig(nil), cfg.Emulators...)
+	}
+	toSave.Normalize()
+	if err := toSave.validate(); err != nil {
+		return fmt.Errorf("validating config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	encodeErr := func() error {
+		enc := toml.NewEncoder(f)
+		if err := enc.Encode(&toSave); err != nil {
+			return fmt.Errorf("encoding config: %w", err)
+		}
+		return nil
+	}()
+	if encodeErr != nil {
+		f.Close()
+		_ = os.Remove(tmp)
+		return encodeErr
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("renaming config: %w", err)
+	}
+	return nil
+}
+
+// MinimalSkeleton returns a tiny starter config (run emusync setup to finish).
+func MinimalSkeleton(hostname string) *Config {
+	devID := SanitizeDeviceID(hostname)
+	cfg := &Config{
+		Server: ServerConfig{
+			Host:      "127.0.0.1",
+			Port:      8080,
+			AuthToken: "configure-with-emusync-setup",
+		},
+		Client: ClientConfig{
+			DeviceID:   devID,
+			SavesPath:  "~/Emulation/saves",
+			BackupPath: "",
+		},
+		Sync: SyncConfig{
+			AutoSyncOnClose:  true,
+			AutoSyncOnLaunch: true,
+			ConflictStrategy: "prompt",
+			PollIntervalMs:   2000,
+			PostExitDelayMs:  2000,
+		},
+		Emulators: nil,
+	}
+	cfg.Normalize()
+	return cfg
+}
+
+// SanitizeDeviceID yields a safe client.device_id from the OS hostname.
+func SanitizeDeviceID(raw string) string {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	var b strings.Builder
+	for _, r := range raw {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	s := b.String()
+	if s == "" {
+		return "my-device"
+	}
+	return s
 }
