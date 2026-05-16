@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/hashicorp/mdns"
@@ -43,40 +42,35 @@ func Advertise(ctx context.Context, port int, instance string) error {
 		return fmt.Errorf("mdns server: %w", err)
 	}
 
-	go func() {
-		<-ctx.Done()
-		_ = srv.Shutdown()
-	}()
-
 	<-ctx.Done()
+	_ = srv.Shutdown()
 	return ctx.Err()
 }
 
 // Lookup listens for up to timeout for emusync servers.
-func Lookup(parent context.Context, timeout time.Duration) []Server {
+// On success with no servers found it returns an empty slice and a nil error.
+// It returns a non-nil error if the context ends before results are ready, or if mDNS lookup fails to start.
+func Lookup(parent context.Context, timeout time.Duration) ([]Server, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	entries := make(chan *mdns.ServiceEntry, 32)
+	errCh := make(chan error, 1)
 	go func() {
 		defer close(entries)
-		// Lookup fills entries then returns; channel closed in defer above.
-		if err := mdns.Lookup(serviceType, entries); err != nil {
-			return
-		}
+		errCh <- mdns.Lookup(serviceType, entries)
 	}()
 
-	var mu sync.Mutex
 	seen := map[string]struct{}{}
 	var list []Server
 
 	for {
 		select {
 		case <-ctx.Done():
-			return list
+			return list, ctx.Err()
 		case e, ok := <-entries:
 			if !ok {
-				return list
+				return list, <-errCh
 			}
 			if e == nil {
 				continue
@@ -93,13 +87,11 @@ func Lookup(parent context.Context, timeout time.Duration) []Server {
 				continue
 			}
 			key := fmt.Sprintf("%s:%d", host, e.Port)
-			mu.Lock()
 			if _, dup := seen[key]; !dup {
 				seen[key] = struct{}{}
 				inst := strings.TrimSuffix(strings.TrimSpace(e.Name), ".")
 				list = append(list, Server{Host: host, Port: e.Port, Instance: inst})
 			}
-			mu.Unlock()
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/dublin/emusync/internal/config"
 )
@@ -16,22 +17,31 @@ type RootCandidate struct {
 	Score  int
 }
 
-var emulatorRootMarkers []string
+var (
+	emulatorRootMarkersOnce sync.Once
+	emulatorRootMarkersList []string
+)
 
-func init() {
-	seen := map[string]struct{}{}
-	for _, e := range config.DefaultEmulators() {
-		name := strings.ToLower(strings.TrimSpace(e.Name))
-		if name == "" {
-			continue
+// emulatorRootMarkers returns sorted emulator directory names used when scoring
+// a save root. Only immediate child directories whose lowercased name equals a
+// marker (exact match) contribute to the score; names like "retroarch-saves" do not.
+func emulatorRootMarkers() []string {
+	emulatorRootMarkersOnce.Do(func() {
+		seen := map[string]struct{}{}
+		for _, e := range config.DefaultEmulators() {
+			name := strings.ToLower(strings.TrimSpace(e.Name))
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			emulatorRootMarkersList = append(emulatorRootMarkersList, name)
 		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		emulatorRootMarkers = append(emulatorRootMarkers, strings.ToLower(e.Name))
-	}
-	sort.Strings(emulatorRootMarkers)
+		sort.Strings(emulatorRootMarkersList)
+	})
+	return emulatorRootMarkersList
 }
 
 // FindSaveRoots returns likely save roots under home, highest scoring first.
@@ -115,8 +125,9 @@ func scoreChildMarkers(dir string) int {
 }
 
 func markerMatch(lowerName string) bool {
-	i := sort.SearchStrings(emulatorRootMarkers, lowerName)
-	return i < len(emulatorRootMarkers) && emulatorRootMarkers[i] == lowerName
+	markers := emulatorRootMarkers()
+	i := sort.SearchStrings(markers, lowerName)
+	return i < len(markers) && markers[i] == lowerName
 }
 
 func dedupeRoots(in []RootCandidate) []RootCandidate {

@@ -98,6 +98,9 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if strings.TrimSpace(c.Server.Host) == "" {
+		c.Server.Host = "127.0.0.1"
+	}
 	if c.Server.Port == 0 {
 		c.Server.Port = 8080
 	}
@@ -123,9 +126,6 @@ func (c *Config) applyDefaults() {
 }
 
 func (c *Config) validate() error {
-	if strings.TrimSpace(c.Server.Host) == "" {
-		return fmt.Errorf("server.host is required")
-	}
 	if c.Client.DeviceID == "" {
 		return fmt.Errorf("client.device_id is required")
 	}
@@ -183,8 +183,12 @@ func pathToTilde(abs string) string {
 
 // Save writes cfg as TOML to path (0600), replacing atomically.
 func Save(path string, cfg *Config) error {
-	cfg.Normalize()
-	if err := cfg.validate(); err != nil {
+	toSave := *cfg
+	if len(cfg.Emulators) > 0 {
+		toSave.Emulators = append([]model.EmulatorConfig(nil), cfg.Emulators...)
+	}
+	toSave.Normalize()
+	if err := toSave.validate(); err != nil {
 		return fmt.Errorf("validating config: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -197,7 +201,7 @@ func Save(path string, cfg *Config) error {
 	}
 	encodeErr := func() error {
 		enc := toml.NewEncoder(f)
-		if err := enc.Encode(cfg); err != nil {
+		if err := enc.Encode(&toSave); err != nil {
 			return fmt.Errorf("encoding config: %w", err)
 		}
 		return nil

@@ -124,6 +124,37 @@ conflict_strategy = "`+strategy+`"
 	}
 }
 
+func TestLoad_DefaultsEmptyServerHost(t *testing.T) {
+	path := writeTOML(t, `
+[client]
+device_id = "deck"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Server.Host != "127.0.0.1" {
+		t.Errorf("Host = %q, want 127.0.0.1", cfg.Server.Host)
+	}
+}
+
+func TestSave_ValidateErrorDoesNotMutateOriginal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := &Config{
+		Server: ServerConfig{Host: "127.0.0.1", Port: 8080},
+		Client: ClientConfig{SavesPath: "~/Emulation/saves"},
+	}
+	orig := *cfg
+	err := Save(path, cfg)
+	if err == nil {
+		t.Fatal("expected validation error for empty device_id")
+	}
+	if cfg.Client != orig.Client || cfg.Server != orig.Server {
+		t.Fatalf("cfg mutated on failed Save: diff server=%+v client=%+v vs orig client=%+v",
+			cfg.Server, cfg.Client, orig.Client)
+	}
+}
+
 func TestLoad_MalformedTOML(t *testing.T) {
 	path := writeTOML(t, `
 this is not valid toml [[[
