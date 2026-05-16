@@ -2,7 +2,7 @@
 
 Self-hosted emulator save file synchronization for Linux desktops and Steam Decks.
 
-Emusync automatically syncs your emulator saves and savestates across devices -- pulling the latest saves when an emulator launches and uploading them when it closes. A lightweight server stores versioned saves with conflict detection, and a client agent monitors emulator processes in the background.
+Emusync automatically syncs your emulator saves and savestates across devices -- pulling the latest saves when an emulator launches and uploading them when it closes. A lightweight server stores versioned saves with conflict detection, and a client watcher monitors emulator processes as a **long-running task**. On Linux desktops and Steam Deck (desktop session), run that watcher under **systemd** as a user service so it starts with your session and restarts on failure; use `emusync watch` in the foreground only when debugging.
 
 ## Features
 
@@ -56,23 +56,25 @@ The server listens on port 8080 with save data persisted in a Docker volume.
 
    **Server LAN advertisement:** set `EMUSYNC_ADVERTISE_MDNS=true` for the server container (see `docker-compose.yml`) so clients can find it via mDNS (`_emusync._tcp`). This is best on bare-metal or host-network setups; inside default bridge Docker, mDNS usually does not reach your LAN.
 
-4. Start the watcher:
-
-   ```bash
-   emusync watch
-   ```
-
-   Or install as a systemd user service for automatic startup:
+4. Start the watcher (recommended: **systemd user service**):
 
    ```bash
    make install-service
    systemctl --user enable --now emusync-watch
    ```
 
+   The installed unit runs **`watch --quiet`** so the informational banner stays off stdout/journal (structured logs still go to the journal and **`~/.local/share/emusync/sync.log`**).
+
+   Foreground-only (debugging):
+
+   ```bash
+   emusync watch
+   ```
+
 ## Usage
 
 ```
-emusync watch              # Monitor emulators and auto-sync saves
+emusync watch [--quiet]    # Monitor emulators (--quiet for systemd/journal)
 emusync setup              # Interactive config (mDNS + save path autodetect)
 emusync push               # Manually upload all saves
 emusync pull               # Manually download all saves

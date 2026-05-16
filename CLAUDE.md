@@ -40,6 +40,7 @@ go test ./internal/hasher/ -v -run TestHashName
 - `internal/server/` — HTTP server, file storage, auth middleware, conflict handling
 - `internal/client/` — `Syncer` (push/pull orchestration, state tracking) and `APIClient` (HTTP with retries)
 - `internal/watcher/` — Process monitor using `/proc` parsing, with Flatpak/bwrap and Proton/Wine wrapper detection
+- `internal/watchlock/` — Single-instance lock for `watch` (`~/.local/share/emusync/watch.lock`, Unix `flock`)
 - `internal/hasher/` — Concurrent SHA-256 file hashing with worker pool
 - `internal/logging/` — `slog`-based structured logging to stderr + file
 
@@ -81,4 +82,4 @@ TOML config at `~/.config/emusync/config.toml`. See `deploy/config/config.exampl
 
 ## Dependencies
 
-Only two external dependencies: **Cobra** (CLI framework) and **BurntSushi/toml** (config parsing). Everything else uses Go standard library.
+External libraries: **Cobra** (CLI), **BurntSushi/toml** (config), **hashicorp/mdns** (LAN discovery in `setup`), **golang.org/x/sys** (Unix `flock` for a single running `watch`). Everything else uses the Go standard library.
