@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/dublin/emusync/internal/authtoken"
 	"github.com/dublin/emusync/internal/model"
 )
 
@@ -98,7 +99,7 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyDefaults() {
-	c.Server.AuthToken = strings.TrimSpace(c.Server.AuthToken)
+	c.Server.AuthToken = authtoken.Normalize(c.Server.AuthToken)
 	if strings.TrimSpace(c.Server.Host) == "" {
 		c.Server.Host = "127.0.0.1"
 	}

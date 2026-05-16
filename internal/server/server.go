@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dublin/emusync/internal/authtoken"
 	"github.com/dublin/emusync/internal/discovery"
 )
 
@@ -30,7 +31,7 @@ func ConfigFromEnv() ServerConfig {
 	cfg := ServerConfig{
 		Port:       8080,
 		DataDir:    "/data",
-		AuthToken:  strings.TrimSpace(os.Getenv("EMUSYNC_AUTH_TOKEN")),
+		AuthToken:  authtoken.Normalize(os.Getenv("EMUSYNC_AUTH_TOKEN")),
 		MaxBackups: 10,
 	}
 
@@ -48,7 +49,7 @@ func ConfigFromEnv() ServerConfig {
 		}
 	}
 	cfg.AdvertiseMDNS = strings.EqualFold(strings.TrimSpace(os.Getenv("EMUSYNC_ADVERTISE_MDNS")), "true")
-	cfg.AdminToken = strings.TrimSpace(os.Getenv("EMUSYNC_ADMIN_TOKEN"))
+	cfg.AdminToken = authtoken.Normalize(os.Getenv("EMUSYNC_ADMIN_TOKEN"))
 
 	return cfg
 }
