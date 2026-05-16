@@ -17,20 +17,20 @@ Emusync automatically syncs your emulator saves and savestates across devices --
 
 ### Server
 
-1. Copy the example environment file and set an auth token:
+**Recommended — one-shot bootstrap** (creates a root `.env` with a random token if missing, then runs `docker compose up -d --build`):
 
-   ```bash
-   cp deploy/docker/.env.example .env
-   # Edit .env and set EMUSYNC_AUTH_TOKEN to a secure value
-   ```
+```bash
+./scripts/bootstrap-server.sh
+# or: make bootstrap-server
+```
 
-2. Start the server:
+- Requires Docker with the Compose v2 plugin (`docker compose`).
+- If `.env` already exists, the token is **left unchanged** unless you pass **`--force-token`** (every client must then be updated).
+- On failure, ensure `docker` works for your user (e.g. `docker` group).
 
-   ```bash
-   make docker-up
-   ```
+**Manual alternative:** copy `deploy/docker/.env.example` to `.env`, set `EMUSYNC_AUTH_TOKEN`, then `make docker-up`.
 
-   The server listens on port 8080 with save data persisted in a Docker volume.
+The server listens on port 8080 with save data persisted in a Docker volume.
 
 ### Client
 
@@ -40,13 +40,15 @@ Emusync automatically syncs your emulator saves and savestates across devices --
    make install
    ```
 
-2. Generate a default config:
+2. Generate a starter config:
 
    ```bash
    emusync init
    ```
 
-3. Edit `~/.config/emusync/config.toml` -- set your server host, auth token, device ID, and saves path.
+3. Edit `~/.config/emusync/config.toml` — set your server host, auth token, device ID, and saves path.
+
+   _(Interactive `emusync setup` with LAN discovery is added in a follow-up PR.)_
 
 4. Start the watcher:
 
