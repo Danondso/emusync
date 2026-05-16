@@ -128,6 +128,34 @@ func TestAPIClient_DownloadFile_Success(t *testing.T) {
 	}
 }
 
+func TestAPIClient_DownloadFile_EscapedPath(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	content := "x"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/files/retroarch/nested/slot 1.srm" {
+			t.Errorf("unexpected path: %q", r.URL.Path)
+		}
+		w.Header().Set("X-SHA256", "abc")
+		w.Header().Set("X-Timestamp", now.Format(time.RFC3339))
+		w.Header().Set("X-Device-ID", "d")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(content))
+	}))
+	defer srv.Close()
+
+	client := NewAPIClient(srv.URL, "")
+	reader, _, err := client.DownloadFile(context.Background(), "retroarch", "nested/slot 1.srm")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer reader.Close()
+	body, _ := io.ReadAll(reader)
+	if string(body) != content {
+		t.Fatalf("body = %q", string(body))
+	}
+}
+
 func TestAPIClient_DownloadFile_NotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)

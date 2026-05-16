@@ -8,10 +8,32 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dublin/emusync/internal/model"
 )
+
+// encodeEmulatorPath escapes a single path segment (emulator name, conflict id).
+func encodeEmulatorPath(s string) string {
+	return url.PathEscape(s)
+}
+
+// encodeFilePathSegments splits a logical save path on "/" (after normalizing to slash),
+// escapes each segment, and rejoins. Empty logical path returns "".
+func encodeFilePathSegments(filePath string) string {
+	rel := filepath.ToSlash(strings.TrimPrefix(filePath, "/"))
+	if rel == "" || rel == "." {
+		return ""
+	}
+	parts := strings.Split(rel, "/")
+	for i := range parts {
+		parts[i] = url.PathEscape(parts[i])
+	}
+	return strings.Join(parts, "/")
+}
 
 // APIClient communicates with the emusync server.
 type APIClient struct {
@@ -62,7 +84,7 @@ func (c *APIClient) do(ctx context.Context, req *http.Request) (*http.Response, 
 
 // GetManifest retrieves the file manifest for an emulator.
 func (c *APIClient) GetManifest(ctx context.Context, emulator string) (*model.Manifest, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/manifest/%s", c.baseURL, emulator), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/manifest/%s", c.baseURL, encodeEmulatorPath(emulator)), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +108,11 @@ func (c *APIClient) GetManifest(ctx context.Context, emulator string) (*model.Ma
 
 // DownloadFile downloads a file from the server.
 func (c *APIClient) DownloadFile(ctx context.Context, emulator, path string) (io.ReadCloser, *model.FileEntry, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/files/%s/%s", c.baseURL, emulator, path), nil)
+	enc := encodeFilePathSegments(path)
+	if enc == "" {
+		return nil, nil, fmt.Errorf("file path is empty")
+	}
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/files/%s/%s", c.baseURL, encodeEmulatorPath(emulator), enc), nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -114,7 +140,11 @@ func (c *APIClient) DownloadFile(ctx context.Context, emulator, path string) (io
 
 // UploadFile uploads a file to the server. Returns a conflict if detected.
 func (c *APIClient) UploadFile(ctx context.Context, emulator, path string, r io.Reader, meta model.FileEntry, baseHash string) (*model.Conflict, error) {
-	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/api/v1/files/%s/%s", c.baseURL, emulator, path), r)
+	enc := encodeFilePathSegments(path)
+	if enc == "" {
+		return nil, fmt.Errorf("file path is empty")
+	}
+	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/api/v1/files/%s/%s", c.baseURL, encodeEmulatorPath(emulator), enc), r)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +207,7 @@ func (c *APIClient) GetConflicts(ctx context.Context) ([]model.Conflict, error) 
 // ResolveConflict resolves a conflict on the server.
 func (c *APIClient) ResolveConflict(ctx context.Context, id string, choice string) error {
 	body, _ := json.Marshal(map[string]string{"choice": choice})
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/conflicts/%s/resolve", c.baseURL, id), bytes.NewReader(body))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/conflicts/%s/resolve", c.baseURL, encodeEmulatorPath(id)), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -198,7 +228,11 @@ func (c *APIClient) ResolveConflict(ctx context.Context, id string, choice strin
 
 // GetHistory retrieves version history for a file.
 func (c *APIClient) GetHistory(ctx context.Context, emulator, path string) ([]model.VersionEntry, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/history/%s/%s", c.baseURL, emulator, path), nil)
+	enc := encodeFilePathSegments(path)
+	if enc == "" {
+		return nil, fmt.Errorf("file path is empty")
+	}
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v1/history/%s/%s", c.baseURL, encodeEmulatorPath(emulator), enc), nil)
 	if err != nil {
 		return nil, err
 	}
