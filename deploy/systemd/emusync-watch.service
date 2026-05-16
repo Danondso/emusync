@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/emusync watch
+ExecStart=%h/.local/bin/emusync watch --quiet
 Restart=on-failure
 RestartSec=5
 Environment=HOME=%h

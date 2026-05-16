@@ -4,20 +4,34 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/dublin/emusync/internal/client"
 	"github.com/dublin/emusync/internal/watcher"
+	"github.com/dublin/emusync/internal/watchlock"
 	"github.com/spf13/cobra"
 )
+
+var watchQuiet bool
 
 var watchCmd = &cobra.Command{
 	Use:   "watch",
 	Short: "Watch for emulator processes and auto-sync",
 	Long:  "Monitors running processes and automatically syncs saves when an emulator exits or launches.",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		lockPath, err := watchlock.DefaultPath()
+		if err != nil {
+			return err
+		}
+		releaseLock, err := watchlock.Acquire(lockPath)
+		if err != nil {
+			return err
+		}
+		defer releaseLock()
+
 		syncer, err := client.NewSyncer(cfg)
 		if err != nil {
 			return err
@@ -42,7 +56,9 @@ var watchCmd = &cobra.Command{
 			"emulators", len(cfg.Emulators),
 			"poll_ms", cfg.Sync.PollIntervalMs,
 		)
-		fmt.Printf("Watching for %d emulator(s)...\n", len(cfg.Emulators))
+		if !watchQuiet {
+			fmt.Fprintf(os.Stdout, "Watching for %d emulator(s)...\n", len(cfg.Emulators))
+		}
 
 		// Process events
 		for event := range w.Events() {
@@ -96,5 +112,6 @@ var watchCmd = &cobra.Command{
 }
 
 func init() {
+	watchCmd.Flags().BoolVar(&watchQuiet, "quiet", false, "suppress informational stdout (for systemd/journal)")
 	rootCmd.AddCommand(watchCmd)
 }
