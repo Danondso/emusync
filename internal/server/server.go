@@ -64,6 +64,14 @@ func ConfigFromEnv() ServerConfig {
 
 // Run starts the HTTP server with graceful shutdown.
 func Run(cfg ServerConfig) error {
+	if cfg.AuthToken == "" {
+		allowNoAuth := strings.EqualFold(strings.TrimSpace(os.Getenv("EMUSYNC_ALLOW_NO_AUTH")), "true")
+		if !allowNoAuth {
+			return fmt.Errorf("EMUSYNC_AUTH_TOKEN is not set; set it or set EMUSYNC_ALLOW_NO_AUTH=true to run without authentication")
+		}
+		slog.Warn("auth disabled — EMUSYNC_ALLOW_NO_AUTH=true is set; server is unprotected")
+	}
+
 	storage := NewStorage(cfg.DataDir, cfg.MaxBackups)
 	handlers := NewHandlers(storage)
 
@@ -74,8 +82,6 @@ func Run(cfg ServerConfig) error {
 	if cfg.AuthToken != "" {
 		syncHandler = AuthMiddleware(cfg.AuthToken, mux)
 		slog.Info("auth enabled")
-	} else {
-		slog.Warn("auth disabled (no EMUSYNC_AUTH_TOKEN set)")
 	}
 
 	handler := syncHandler
@@ -87,12 +93,19 @@ func Run(cfg ServerConfig) error {
 	// Add request logging
 	handler = loggingMiddleware(handler)
 
+	// Unauthenticated liveness endpoint — registered outside the auth middleware so
+	// Docker health checks and monitoring tools do not need the auth token.
+	outer := http.NewServeMux()
+	outer.HandleFunc("GET /api/v1/health/ready", handlers.HandleReadyCheck)
+	outer.Handle("/", handler)
+
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      handler,
-		ReadTimeout:  5 * time.Minute,
-		WriteTimeout: 5 * time.Minute,
-		IdleTimeout:  60 * time.Second,
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           outer,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      5 * time.Minute,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Graceful shutdown

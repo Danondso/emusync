@@ -41,6 +41,30 @@ func putFile(t *testing.T, serverURL, token, emulator, path, content, baseHash s
 	return resp
 }
 
+func TestHandler_ReadyCheck(t *testing.T) {
+	storage := NewStorage(t.TempDir(), 10)
+	h := NewHandlers(storage)
+	srv := httptest.NewServer(http.HandlerFunc(h.HandleReadyCheck))
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "ok" {
+		t.Fatalf("expected status ok, got %q", body["status"])
+	}
+}
+
 func TestHandler_Health(t *testing.T) {
 	srv, token := newTestServer(t)
 
@@ -174,6 +198,102 @@ func TestHandler_PutFile_MissingHeaders(t *testing.T) {
 				t.Fatalf("expected 400, got %d", resp.StatusCode)
 			}
 		})
+	}
+}
+
+func TestHandler_PutFile_LongDeviceID(t *testing.T) {
+	srv, token := newTestServer(t)
+
+	content := "some-data"
+	hash := sha256hex(content)
+	req, _ := http.NewRequest("PUT",
+		srv.URL+"/api/v1/files/retroarch/saves/game.srm",
+		strings.NewReader(content))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Device-ID", strings.Repeat("x", 129))
+	req.Header.Set("X-SHA256", hash)
+	req.Header.Set("X-Timestamp", time.Now().UTC().Format(time.RFC3339))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandler_PutFile_InvalidSHA256(t *testing.T) {
+	srv, token := newTestServer(t)
+
+	tests := []struct {
+		name string
+		hash string
+	}{
+		{"not hex", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"},
+		{"too short", "abc123"},
+		{"too long", strings.Repeat("a", 65)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("PUT",
+				srv.URL+"/api/v1/files/retroarch/saves/game.srm",
+				strings.NewReader("some-data"))
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("X-Device-ID", "test-device")
+			req.Header.Set("X-SHA256", tt.hash)
+			req.Header.Set("X-Timestamp", time.Now().UTC().Format(time.RFC3339))
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d", resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestHandler_PutFile_HashMismatch(t *testing.T) {
+	srv, token := newTestServer(t)
+
+	content := "actual-content"
+	wrongHash := sha256hex("different-content")
+
+	req, _ := http.NewRequest("PUT",
+		srv.URL+"/api/v1/files/retroarch/saves/game.srm",
+		strings.NewReader(content))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Device-ID", "test-device")
+	req.Header.Set("X-SHA256", wrongHash)
+	req.Header.Set("X-Timestamp", time.Now().UTC().Format(time.RFC3339))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for hash mismatch, got %d", resp.StatusCode)
+	}
+
+	// File must not exist after a hash mismatch
+	getReq, _ := http.NewRequest("GET", srv.URL+"/api/v1/files/retroarch/saves/game.srm", nil)
+	getReq.Header.Set("Authorization", "Bearer "+token)
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("file should not exist after hash mismatch, got %d", getResp.StatusCode)
 	}
 }
 

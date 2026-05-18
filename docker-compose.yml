@@ -15,12 +15,14 @@ services:
       - EMUSYNC_MAX_BACKUPS=${EMUSYNC_MAX_BACKUPS:-10}
       - EMUSYNC_ADVERTISE_MDNS=${EMUSYNC_ADVERTISE_MDNS:-false}
       - EMUSYNC_ADMIN_TOKEN=${EMUSYNC_ADMIN_TOKEN:-}
-    # Health endpoint requires Bearer auth when EMUSYNC_AUTH_TOKEN is set.
     healthcheck:
       test:
         [
-          "CMD-SHELL",
-          "wget -q -O /dev/null --header=\"Authorization: Bearer $$EMUSYNC_AUTH_TOKEN\" http://127.0.0.1:8080/api/v1/health || exit 1",
+          "CMD",
+          "wget",
+          "-q",
+          "-O", "/dev/null",
+          "http://127.0.0.1:8080/api/v1/health/ready",
         ]
       interval: 30s
       timeout: 5s

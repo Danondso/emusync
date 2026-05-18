@@ -1,9 +1,9 @@
 package server
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 )
 
 const maxUploadSize = 512 << 20 // 512 MB
+const maxDeviceIDLen = 128
 
 // Handlers holds the HTTP API route handlers.
 type Handlers struct {
@@ -37,6 +38,13 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *Handlers) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// HandleReadyCheck is an unauthenticated liveness endpoint registered outside the
+// auth middleware. It is intentionally exported so server.go can wire it directly.
+func (h *Handlers) HandleReadyCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -101,36 +109,40 @@ func (h *Handlers) handlePutFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(deviceID) > maxDeviceIDLen {
+		http.Error(w, "X-Device-ID too long (max 128 characters)", http.StatusBadRequest)
+		return
+	}
+
+	// Validate X-SHA256 is a well-formed 64-character hex SHA-256
+	if decoded, err := hex.DecodeString(sha256Hash); err != nil || len(decoded) != 32 {
+		http.Error(w, "X-SHA256 must be a valid 64-character hex SHA-256", http.StatusBadRequest)
+		return
+	}
+
 	timestamp, err := time.Parse(time.RFC3339, timestampStr)
 	if err != nil {
 		http.Error(w, "invalid X-Timestamp format (expected RFC3339)", http.StatusBadRequest)
 		return
 	}
 
-	// Wrap body in a hashing reader to verify content hash and measure actual size
-	h256 := sha256.New()
-	countReader := &countingReader{r: io.TeeReader(r.Body, h256)}
-
 	meta := model.FileEntry{
 		SHA256:    sha256Hash,
-		Size:      0, // will be set after write
+		Size:      0,
 		Timestamp: timestamp,
 		DeviceID:  deviceID,
 	}
 
-	conflict, err := h.storage.WriteFile(emulator, filePath, countReader, meta, baseHash)
+	// Hash verification happens inside WriteFile/atomicWrite before any commit
+	conflict, err := h.storage.WriteFile(emulator, filePath, r.Body, meta, baseHash, sha256Hash)
 	if err != nil {
+		if errors.Is(err, ErrHashMismatch) {
+			slog.Warn("hash mismatch on upload", "emulator", emulator, "path", filePath)
+			http.Error(w, "hash mismatch: uploaded content does not match X-SHA256", http.StatusBadRequest)
+			return
+		}
 		slog.Error("writing file", "emulator", emulator, "path", filePath, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Verify uploaded content hash matches declared hash
-	computedHash := hex.EncodeToString(h256.Sum(nil))
-	if computedHash != sha256Hash {
-		slog.Warn("hash mismatch", "emulator", emulator, "path", filePath,
-			"declared", sha256Hash, "computed", computedHash)
-		http.Error(w, "hash mismatch: uploaded content does not match X-SHA256", http.StatusBadRequest)
 		return
 	}
 
@@ -145,18 +157,6 @@ func (h *Handlers) handlePutFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-// countingReader wraps a reader and counts bytes read.
-type countingReader struct {
-	r io.Reader
-	n int64
-}
-
-func (cr *countingReader) Read(p []byte) (int, error) {
-	n, err := cr.r.Read(p)
-	cr.n += int64(n)
-	return n, err
 }
 
 func (h *Handlers) handleListConflicts(w http.ResponseWriter, r *http.Request) {
