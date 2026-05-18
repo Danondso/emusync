@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ func writeFile(t *testing.T, s *Storage, emulator, path, content, baseHash strin
 		Timestamp: time.Now().UTC(),
 		DeviceID:  "test-device",
 	}
-	conflict, err := s.WriteFile(emulator, path, strings.NewReader(content), meta, baseHash)
+	conflict, err := s.WriteFile(emulator, path, strings.NewReader(content), meta, baseHash, hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,6 +509,53 @@ func TestGetHistory_MultipleVersions(t *testing.T) {
 	}
 }
 
+func TestStorage_PathTraversalPrevented(t *testing.T) {
+	s := NewStorage(t.TempDir(), 5)
+
+	traversalPaths := []string{
+		"../other-emulator/game.sav",
+		"../../canonical/other-emulator/game.sav",
+		"subdir/../../other-emulator/game.sav",
+	}
+
+	for _, path := range traversalPaths {
+		t.Run(path, func(t *testing.T) {
+			_, _, err := s.ReadFile("retroarch", path)
+			if err == nil {
+				t.Fatalf("expected error for path traversal attempt %q", path)
+			}
+		})
+	}
+}
+
+func TestStorage_HashMismatchRejected(t *testing.T) {
+	s := NewStorage(t.TempDir(), 5)
+
+	hash := sha256hex("actual-content")
+	meta := model.FileEntry{
+		SHA256:    hash,
+		Size:      int64(len("actual-content")),
+		Timestamp: time.Now().UTC(),
+		DeviceID:  "test-device",
+	}
+
+	// Declare a hash that does not match the content
+	wrongHash := sha256hex("different-content")
+	_, err := s.WriteFile("gba", "game.sav", strings.NewReader("actual-content"), meta, "", wrongHash)
+	if err == nil {
+		t.Fatal("expected error for hash mismatch")
+	}
+	if !errors.Is(err, ErrHashMismatch) {
+		t.Fatalf("expected ErrHashMismatch, got: %v", err)
+	}
+
+	// Canonical file must not have been created
+	_, _, readErr := s.ReadFile("gba", "game.sav")
+	if readErr == nil {
+		t.Fatal("canonical file should not exist after hash mismatch")
+	}
+}
+
 func TestStorage_ConcurrentWrites(t *testing.T) {
 	s := NewStorage(t.TempDir(), 10)
 
@@ -529,7 +577,7 @@ func TestStorage_ConcurrentWrites(t *testing.T) {
 			// Each goroutine writes to its own file to avoid logical conflicts
 			// but exercises the shared mutex.
 			path := "save" + string(rune('0'+n)) + ".sav"
-			_, err := s.WriteFile("emu", path, strings.NewReader(content), meta, "")
+			_, err := s.WriteFile("emu", path, strings.NewReader(content), meta, "", hash)
 			if err != nil {
 				errs <- err
 			}

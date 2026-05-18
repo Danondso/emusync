@@ -1,7 +1,10 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +20,9 @@ import (
 )
 
 var validNameRe = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// ErrHashMismatch is returned when uploaded content does not match the declared SHA-256.
+var ErrHashMismatch = errors.New("content hash mismatch")
 
 // Storage manages server-side save file persistence.
 type Storage struct {
@@ -60,6 +66,18 @@ func (s *Storage) validatePath(resolved string) error {
 	base := filepath.Clean(s.dataDir) + string(filepath.Separator)
 	if !strings.HasPrefix(clean+string(filepath.Separator), base) && clean != filepath.Clean(s.dataDir) {
 		return fmt.Errorf("invalid path: outside data directory")
+	}
+	return nil
+}
+
+// validateEmulatorPath checks that resolved is within the emulator-specific subdirectory
+// (e.g. /data/canonical/{emulator}/). This is stricter than validatePath and prevents
+// cross-emulator path traversal by authenticated clients.
+func (s *Storage) validateEmulatorPath(resolved, emulator, subdir string) error {
+	clean := filepath.Clean(resolved)
+	base := filepath.Clean(filepath.Join(s.dataDir, subdir, emulator)) + string(filepath.Separator)
+	if !strings.HasPrefix(clean+string(filepath.Separator), base) {
+		return fmt.Errorf("invalid path: outside %s/%s directory", subdir, emulator)
 	}
 	return nil
 }
@@ -137,7 +155,7 @@ func (s *Storage) ReadFile(emulator, filePath string) (io.ReadCloser, *model.Fil
 	defer s.mu.RUnlock()
 
 	canonPath := filepath.Join(s.canonicalDir(emulator), filePath)
-	if err := s.validatePath(canonPath); err != nil {
+	if err := s.validateEmulatorPath(canonPath, emulator, "canonical"); err != nil {
 		return nil, nil, err
 	}
 	f, err := os.Open(canonPath)
@@ -146,7 +164,7 @@ func (s *Storage) ReadFile(emulator, filePath string) (io.ReadCloser, *model.Fil
 	}
 
 	metaPath := s.metadataPath(emulator, filePath)
-	if err := s.validatePath(metaPath); err != nil {
+	if err := s.validateEmulatorPath(metaPath, emulator, "metadata"); err != nil {
 		f.Close()
 		return nil, nil, err
 	}
@@ -161,17 +179,19 @@ func (s *Storage) ReadFile(emulator, filePath string) (io.ReadCloser, *model.Fil
 
 // WriteFile stores a file. If baseHash doesn't match the current canonical hash,
 // a conflict is returned and the file is stored as a conflict candidate.
-func (s *Storage) WriteFile(emulator, filePath string, r io.Reader, meta model.FileEntry, baseHash string) (*model.Conflict, error) {
+// expectedSHA256 is the declared hash from the client; WriteFile verifies the uploaded
+// content matches before committing anything to canonical storage.
+func (s *Storage) WriteFile(emulator, filePath string, r io.Reader, meta model.FileEntry, baseHash, expectedSHA256 string) (*model.Conflict, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Validate paths before any filesystem access
 	canonPath := filepath.Join(s.canonicalDir(emulator), filePath)
-	if err := s.validatePath(canonPath); err != nil {
+	if err := s.validateEmulatorPath(canonPath, emulator, "canonical"); err != nil {
 		return nil, err
 	}
 	metaP := s.metadataPath(emulator, filePath)
-	if err := s.validatePath(metaP); err != nil {
+	if err := s.validateEmulatorPath(metaP, emulator, "metadata"); err != nil {
 		return nil, err
 	}
 
@@ -188,13 +208,17 @@ func (s *Storage) WriteFile(emulator, filePath string, r io.Reader, meta model.F
 			DetectedAt: time.Now().UTC(),
 		}
 
-		// Store the incoming file as a conflict candidate
+		// Store the incoming file as a conflict candidate, verifying its hash
 		if err := s.writeConflictFile(conflict, r); err != nil {
 			return nil, fmt.Errorf("storing conflict file: %w", err)
 		}
 
-		// Save conflict metadata
+		// Save conflict metadata; clean up the conflict file if this fails
 		if err := s.saveConflict(conflict); err != nil {
+			conflictFilePath := filepath.Join(s.conflictDir(), "files", conflict.ID)
+			if removeErr := os.Remove(conflictFilePath); removeErr != nil && !os.IsNotExist(removeErr) {
+				slog.Warn("failed to clean up orphaned conflict file", "path", conflictFilePath, "error", removeErr)
+			}
 			return nil, fmt.Errorf("saving conflict metadata: %w", err)
 		}
 
@@ -208,8 +232,8 @@ func (s *Storage) WriteFile(emulator, filePath string, r io.Reader, meta model.F
 		}
 	}
 
-	// Write new canonical file atomically
-	if err := s.atomicWrite(canonPath, r); err != nil {
+	// Write new canonical file atomically, verifying content hash before committing
+	if err := s.atomicWrite(canonPath, r, expectedSHA256); err != nil {
 		return nil, fmt.Errorf("writing canonical file: %w", err)
 	}
 
@@ -229,7 +253,7 @@ func (s *Storage) GetHistory(emulator, filePath string) ([]model.VersionEntry, e
 	var versions []model.VersionEntry
 
 	metaPath := s.metadataPath(emulator, filePath)
-	if err := s.validatePath(metaPath); err != nil {
+	if err := s.validateEmulatorPath(metaPath, emulator, "metadata"); err != nil {
 		return nil, err
 	}
 
@@ -343,7 +367,7 @@ func (s *Storage) ResolveConflict(id string, choice string) error {
 			return err
 		}
 		defer src.Close()
-		if err := s.atomicWrite(canonPath, src); err != nil {
+		if err := s.atomicWrite(canonPath, src, ""); err != nil {
 			return err
 		}
 		if err := s.writeMetadata(s.metadataPath(conflict.Emulator, conflict.Path), &conflict.Local); err != nil {
@@ -365,7 +389,7 @@ func (s *Storage) ResolveConflict(id string, choice string) error {
 			return err
 		}
 		defer src.Close()
-		if err := s.atomicWrite(destPath, src); err != nil {
+		if err := s.atomicWrite(destPath, src, ""); err != nil {
 			return err
 		}
 		if err := s.writeMetadata(s.metadataPath(conflict.Emulator, newPath), &conflict.Local); err != nil {
@@ -419,7 +443,10 @@ func (s *Storage) writeMetadata(path string, entry *model.FileEntry) error {
 	return atomicWriteBytes(path, data)
 }
 
-func (s *Storage) atomicWrite(destPath string, r io.Reader) error {
+// atomicWrite writes r to destPath via a temp file and atomic rename.
+// If expectedSHA256 is non-empty, the content is hashed during the write and
+// compared before the rename; a mismatch deletes the temp file and returns ErrHashMismatch.
+func (s *Storage) atomicWrite(destPath string, r io.Reader, expectedSHA256 string) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
 	}
@@ -428,15 +455,34 @@ func (s *Storage) atomicWrite(destPath string, r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, r); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return err
+
+	var computedHash string
+	if expectedSHA256 != "" {
+		h := sha256.New()
+		if _, err := io.Copy(f, io.TeeReader(r, h)); err != nil {
+			f.Close()
+			os.Remove(tmp)
+			return err
+		}
+		computedHash = hex.EncodeToString(h.Sum(nil))
+	} else {
+		if _, err := io.Copy(f, r); err != nil {
+			f.Close()
+			os.Remove(tmp)
+			return err
+		}
 	}
+
 	if err := f.Close(); err != nil {
 		os.Remove(tmp)
 		return err
 	}
+
+	if expectedSHA256 != "" && computedHash != expectedSHA256 {
+		os.Remove(tmp)
+		return fmt.Errorf("%w: declared %s computed %s", ErrHashMismatch, expectedSHA256, computedHash)
+	}
+
 	return os.Rename(tmp, destPath)
 }
 
@@ -467,7 +513,7 @@ func (s *Storage) createBackup(emulator, filePath string, meta *model.FileEntry)
 	}
 	defer src.Close()
 
-	if err := s.atomicWrite(backupFile, src); err != nil {
+	if err := s.atomicWrite(backupFile, src, ""); err != nil {
 		return err
 	}
 
@@ -505,16 +551,19 @@ func (s *Storage) rotateBackups(versionDir string) {
 	for len(bakFiles) > s.maxBackups {
 		oldest := bakFiles[0]
 		bakFiles = bakFiles[1:]
-		os.Remove(filepath.Join(versionDir, oldest))
-		// Also remove corresponding .json
+		if err := os.Remove(filepath.Join(versionDir, oldest)); err != nil && !os.IsNotExist(err) {
+			slog.Warn("backup rotation: failed to remove old file", "path", oldest, "error", err)
+		}
 		jsonFile := strings.TrimSuffix(oldest, ".bak") + ".json"
-		os.Remove(filepath.Join(versionDir, jsonFile))
+		if err := os.Remove(filepath.Join(versionDir, jsonFile)); err != nil && !os.IsNotExist(err) {
+			slog.Warn("backup rotation: failed to remove old metadata", "path", jsonFile, "error", err)
+		}
 	}
 }
 
 func (s *Storage) writeConflictFile(conflict *model.Conflict, r io.Reader) error {
 	path := filepath.Join(s.conflictDir(), "files", conflict.ID)
-	return s.atomicWrite(path, r)
+	return s.atomicWrite(path, r, conflict.Local.SHA256)
 }
 
 func (s *Storage) saveConflict(conflict *model.Conflict) error {
